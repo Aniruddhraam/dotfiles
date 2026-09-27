@@ -690,6 +690,9 @@ require("lazy").setup({
       require("aerial").setup({
         -- Try LSP first, fall back to treesitter (covers markdown, etc.)
         backends = { "lsp", "treesitter" },
+        -- One outline sidebar that follows the focused split ("window" mode opens one sidebar per split,
+        -- stacking several at the right edge and squeezing the code panes)
+        attach_mode = "global",
         layout = {
           max_width = { 35, 0.25 },
           width = 35,
@@ -704,28 +707,8 @@ require("lazy").setup({
             vim.schedule(_G.Fix_Sidebar_Widths)
           end
         end,
-        open_automatic = function(bufnr)
-          if _G._aerial_user_closed then return false end
-          local ft = vim.bo[bufnr].filetype
-          if ft == "" or ft == "aerial" or ft == "NvimTree" or ft == "alpha" or ft == "toggleterm" or ft == "trouble" then
-            return false
-          end
-          return true
-        end,
-        on_first_symbols = function(bufnr)
-          if _G._aerial_user_closed then return end
-          local curr_buf = vim.api.nvim_get_current_buf()
-          if bufnr == curr_buf then
-            local ft = vim.bo[bufnr].filetype
-            if ft ~= "" and ft ~= "aerial" and ft ~= "NvimTree" and ft ~= "alpha" and ft ~= "toggleterm" and ft ~= "trouble" then
-              local aerial = require("aerial")
-              if not aerial.is_open({ bufnr = bufnr }) then
-                pcall(aerial.open, { bufnr = bufnr, focus = false })
-                if _G.Fix_Sidebar_Widths then vim.schedule(_G.Fix_Sidebar_Widths) end
-              end
-            end
-          end
-        end,
+        -- Never opens on its own: <leader>a toggles it
+        open_automatic = false,
         filter_kind = {
           _ = {
             "Class", "Constructor", "Enum", "Function", "Interface",
@@ -758,8 +741,6 @@ require("lazy").setup({
         highlight_on_hover = true,
         autojump = true,
         close_on_select = false,
-        -- Auto-close when entering a buffer with no symbol support
-        close_automatic_events = { "unsupported" },
         -- Keymaps inside the aerial window
         keymaps = {
           ["<CR>"] = "actions.tree_toggle",  -- Enter collapses/expands nodes
@@ -1091,7 +1072,7 @@ require("lazy").setup({
             quit_on_open = false,
             resize_window = false,
             window_picker = {
-              enable = true,
+              enable = false, -- Open files in the split that was focused last, instead of prompting for a letter
               picker = "default",
               chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
               exclude = {
@@ -1150,6 +1131,11 @@ require("lazy").setup({
     config = function()
       require("bufferline").setup({
         options = {
+          -- The tab bar is shared by all splits: closing a tab closes the file and its pane (asking about
+          -- unsaved changes), and clicking a tab whose file is already in a split jumps to that pane
+          close_command = function(bufnr) vim.schedule(function() _G.Close_File(bufnr) end) end,
+          right_mouse_command = function(bufnr) vim.schedule(function() _G.Close_File(bufnr) end) end,
+          left_mouse_command = function(bufnr) _G.Show_Buffer(bufnr) end,
           offsets = {
             { filetype = "NvimTree", text = "File Explorer", highlight = "Directory", separator = true },
             { filetype = "aerial", text = "Code Structure", highlight = "Directory", separator = true }
@@ -1164,8 +1150,9 @@ require("lazy").setup({
           close_button = { bg = "NONE" },
           close_button_visible = { bg = "NONE" },
           close_button_selected = { bg = "NONE" },
-          buffer_visible = { bg = "NONE" },
-          buffer_selected = { bg = "NONE", bold = true, italic = false },
+          -- Three tiers: focused pane (bright, bold, blue bar), shown in another split (mid, dim bar), hidden (comment)
+          buffer_visible = { fg = "#a9b1d6", bg = "NONE" },
+          buffer_selected = { fg = "#c0caf5", bg = "NONE", bold = true, italic = false },
           numbers = { bg = "NONE" },
           numbers_visible = { bg = "NONE" },
           numbers_selected = { bg = "NONE" },
@@ -1190,8 +1177,8 @@ require("lazy").setup({
           separator = { fg = "#292e42", bg = "NONE" },
           separator_visible = { fg = "#292e42", bg = "NONE" },
           separator_selected = { fg = "#292e42", bg = "NONE" },
-          indicator_selected = { bg = "NONE" },
-          indicator_visible = { bg = "NONE" },
+          indicator_selected = { fg = "#7aa2f7", bg = "NONE" },
+          indicator_visible = { fg = "#3b4261", bg = "NONE" },
           pick_selected = { bg = "NONE" },
           pick_visible = { bg = "NONE" },
           pick = { bg = "NONE" },
@@ -3005,12 +2992,8 @@ vim.keymap.set("n", "<leader>a", function()
 
   local aerial = require("aerial")
   if aerial.is_open() then
-    -- Manually closed: stays closed until explicitly reopened
-    _G._aerial_user_closed = true
     aerial.close()
   else
-    -- Manually opened: clear the closed flag
-    _G._aerial_user_closed = false
     aerial.open({ focus = false })
     if _G.Fix_Sidebar_Widths then vim.schedule(_G.Fix_Sidebar_Widths) end
   end
@@ -3103,21 +3086,80 @@ vim.keymap.set({'n', 'i', 'v'}, '<C-A-S-e>', function() cycle_panel_focus(true) 
 vim.keymap.set({'n', 'i', 'v'}, '<M-e>', function() cycle_panel_focus(false) end, { noremap = true, silent = true, desc = "Cycle Focus Forward: File -> Structure -> Tree" })
 vim.keymap.set({'n', 'i', 'v'}, '<M-S-e>', function() cycle_panel_focus(true) end, { noremap = true, silent = true, desc = "Cycle Focus Reverse: File -> Tree -> Structure" })
 
--- Buffer Navigation
-vim.keymap.set('n', '<Tab>', function()
-  local ok, _ = pcall(vim.cmd, "BufferLineCycleNext")
-  if not ok then pcall(vim.cmd, "bnext") end
-end, { noremap = true, silent = true, desc = "Next File Tab" })
+-- Split panes: code windows, as opposed to sidebars, terminals, and floats
+local function is_code_win(win)
+  if vim.api.nvim_win_get_config(win).relative ~= "" then return false end
+  local ft = vim.bo[vim.api.nvim_win_get_buf(win)].filetype
+  return ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "alpha"
+end
 
-vim.keymap.set('n', '<S-Tab>', function()
-  local ok, _ = pcall(vim.cmd, "BufferLineCyclePrev")
-  if not ok then pcall(vim.cmd, "bprevious") end
-end, { noremap = true, silent = true, desc = "Previous File Tab" })
+-- Is the buffer showing in some other pane of the current tab?
+local function shown_in_other_pane(bufnr)
+  local cur = vim.api.nvim_get_current_win()
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if win ~= cur and vim.api.nvim_win_get_buf(win) == bufnr and is_code_win(win) then return win end
+  end
+end
 
--- Window Split Navigation
-vim.keymap.set('n', '<C-h>', '<C-w>h', { noremap = true, silent = true })
-vim.keymap.set('n', '<C-k>', '<C-w>k', { noremap = true, silent = true })
-vim.keymap.set('n', '<C-l>', '<C-w>l', { noremap = true, silent = true })
+-- Show a buffer: jump to the pane already showing it, otherwise open it in the focused code pane
+function _G.Show_Buffer(bufnr)
+  local win = shown_in_other_pane(bufnr)
+  if win then return vim.api.nvim_set_current_win(win) end
+  if not is_code_win(0) and _G.Ensure_Code_Window then _G.Ensure_Code_Window() end
+  vim.api.nvim_set_current_buf(bufnr)
+end
+
+-- Buffer Navigation: cycle files in the focused pane in tab-bar order, skipping files already shown in
+-- another split (so both panes never end up showing the same file)
+local function cycle_buffers(step)
+  local cur = vim.api.nvim_get_current_buf()
+  local function index_of(list)
+    for i, id in ipairs(list) do
+      if id == cur then return i end
+    end
+  end
+
+  local ok, bufferline = pcall(require, "bufferline")
+  local order = ok and vim.tbl_map(function(e) return e.id end, bufferline.get_elements().elements) or {}
+  local idx = index_of(order)
+  if not idx then -- Tab bar not drawn yet or current buffer not in it: fall back to buffer-number order
+    order = vim.tbl_map(function(b) return b.bufnr end, vim.fn.getbufinfo({ buflisted = 1 }))
+    idx = index_of(order)
+  end
+  if not idx then
+    pcall(vim.cmd, step > 0 and "bnext" or "bprevious")
+    return
+  end
+
+  for i = 1, #order - 1 do
+    local id = order[(idx - 1 + step * i) % #order + 1]
+    if not shown_in_other_pane(id) then
+      vim.api.nvim_set_current_buf(id)
+      return
+    end
+  end
+end
+
+vim.keymap.set('n', '<Tab>', function() cycle_buffers(1) end, { noremap = true, silent = true, desc = "Next File Tab" })
+vim.keymap.set('n', '<S-Tab>', function() cycle_buffers(-1) end, { noremap = true, silent = true, desc = "Previous File Tab" })
+
+-- Window Split Navigation (Ctrl+h/j/k/l moves between panes and sidebars)
+vim.keymap.set('n', '<C-h>', '<C-w>h', { noremap = true, silent = true, desc = "Focus Pane Left" })
+vim.keymap.set('n', '<C-j>', '<C-w>j', { noremap = true, silent = true, desc = "Focus Pane Below" })
+vim.keymap.set('n', '<C-k>', '<C-w>k', { noremap = true, silent = true, desc = "Focus Pane Above" })
+vim.keymap.set('n', '<C-l>', '<C-w>l', { noremap = true, silent = true, desc = "Focus Pane Right" })
+
+-- Only the focused code pane shows the cursorline, so it's obvious which split has focus
+-- (sidebars keep theirs: it marks the selected node/symbol)
+local function set_pane_cursorline(on)
+  return function()
+    if vim.bo.buftype ~= "" or not is_code_win(0) then return end
+    vim.opt_local.cursorline = on
+  end
+end
+local pane_focus_group = vim.api.nvim_create_augroup("PaneFocusCursorline", { clear = true })
+vim.api.nvim_create_autocmd({ "WinEnter", "BufWinEnter" }, { group = pane_focus_group, callback = set_pane_cursorline(true) })
+vim.api.nvim_create_autocmd("WinLeave", { group = pane_focus_group, callback = set_pane_cursorline(false) })
 
 -- Smart Close
 local function get_normal_window_count()
@@ -3135,18 +3177,46 @@ local function get_normal_window_count()
   return count
 end
 
-vim.keymap.set('n', '<leader>w', function()
-  if vim.bo.filetype == "NvimTree" or vim.bo.filetype == "aerial" or vim.bo.filetype == "alpha" then return end
-  if get_normal_window_count() > 1 then
-    vim.cmd("close")
-  else
-    if _G.Safe_Delete_Buffer then
-      _G.Safe_Delete_Buffer(0, false)
-    elseif not require("mini.bufremove").delete(0, false) then
-      vim.cmd('bdelete!')
+-- Close a file like an editor tab: ask about unsaved changes, close the split panes showing it
+-- (never the last code pane, which switches to another file instead), then drop it from the tab bar
+function _G.Close_File(bufnr)
+  bufnr = (bufnr and bufnr ~= 0) and bufnr or vim.api.nvim_get_current_buf()
+  if not vim.api.nvim_buf_is_valid(bufnr) then return end
+
+  if vim.bo[bufnr].modified then
+    local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t")
+    local choice = vim.fn.confirm(("Save changes to '%s'?"):format(name ~= "" and name or "[No Name]"), "&Save\n&Discard\n&Cancel", 1, "Question")
+    if choice == 1 then
+      pcall(vim.api.nvim_buf_call, bufnr, function() vim.cmd("write") end)
+      if vim.bo[bufnr].modified then return end -- Write failed (e.g. no file name): keep the file open
+    elseif choice ~= 2 then
+      return
     end
   end
-end, { noremap = true, silent = true, desc = "Close Current File or Split Safely" })
+
+  for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+    local tab_panes = vim.tbl_filter(is_code_win, vim.api.nvim_tabpage_list_wins(vim.api.nvim_win_get_tabpage(win)))
+    if is_code_win(win) and #tab_panes > 1 then
+      pcall(vim.api.nvim_win_close, win, true)
+    end
+  end
+
+  if _G.Safe_Delete_Buffer then
+    _G.Safe_Delete_Buffer(bufnr, true)
+  else
+    pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+  end
+end
+
+vim.keymap.set('n', '<leader>w', function()
+  if vim.bo.filetype == "NvimTree" or vim.bo.filetype == "aerial" or vim.bo.filetype == "alpha" then return end
+  -- Help, quickfix, and other special windows: just close the pane
+  if vim.bo.buftype ~= "" and get_normal_window_count() > 1 then
+    vim.cmd("close")
+    return
+  end
+  _G.Close_File(0)
+end, { noremap = true, silent = true, desc = "Close File (and its Split)" })
 
 -- General Core Bindings
 vim.keymap.set('n', '<leader>q', function()
