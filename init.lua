@@ -826,19 +826,26 @@ require("lazy").setup({
         bufnr = (bufnr and bufnr ~= 0) and bufnr or vim.api.nvim_get_current_buf()
         if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
-        -- 1. Try mini.bufremove first for graceful buffer detachment
-        local ok_mini, mini_bufremove = pcall(require, "mini.bufremove")
-        if ok_mini and mini_bufremove.delete then
-          pcall(mini_bufremove.delete, bufnr, force or false)
+        if vim.bo[bufnr].filetype == "pdfpreview" then
+          -- pdfpreview.nvim only tears down its render state on BufWipeout, which
+          -- mini.bufremove's internal `:bdelete!` never fires; reopening the same
+          -- PDF then reuses stale extmark state and errors. Wipe it directly.
+          pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
         else
-          -- Fallback: in every window showing this buffer, set a clean scratch buffer so the window is preserved
-          for _, win in ipairs(vim.api.nvim_list_wins()) do
-            if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
-              local scratch = vim.api.nvim_create_buf(true, false)
-              pcall(vim.api.nvim_win_set_buf, win, scratch)
+          -- 1. Try mini.bufremove first for graceful buffer detachment
+          local ok_mini, mini_bufremove = pcall(require, "mini.bufremove")
+          if ok_mini and mini_bufremove.delete then
+            pcall(mini_bufremove.delete, bufnr, force or false)
+          else
+            -- Fallback: in every window showing this buffer, set a clean scratch buffer so the window is preserved
+            for _, win in ipairs(vim.api.nvim_list_wins()) do
+              if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
+                local scratch = vim.api.nvim_create_buf(true, false)
+                pcall(vim.api.nvim_win_set_buf, win, scratch)
+              end
             end
+            pcall(vim.api.nvim_buf_delete, bufnr, { force = force or false })
           end
-          pcall(vim.api.nvim_buf_delete, bufnr, { force = force or false })
         end
 
         -- 2. Check if any normal code buffers remain open in visible windows
@@ -1270,7 +1277,7 @@ require("lazy").setup({
             local parsed = nil
 
             -- Pattern 1: Black / Python "error: cannot format <filename>: Cannot parse: <line>:<col>"
-            local black_file, black_l, black_c = line:match("error:%s*cannot format%s+([^:]+):%s*Cannot parse:%s*(%d+):(%d+)")
+            local black_file, black_l, black_c = line:match("error:%s*cannot format%s+([^:]+):%s*Cannot parse.-:%s*(%d+):(%d+)")
             if black_file then
               parsed = {
                 file = (black_file ~= "" and black_file ~= "-") and black_file or (default_buf_name ~= "" and default_buf_name or "<standard input>"),
@@ -1395,6 +1402,30 @@ require("lazy").setup({
           end
         end
 
+        -- Drop Black's target-version safety-check warning and the generic
+        -- "ParseError: bad input" duplicate once a specific "Cannot parse"
+        -- error already pinpoints the real problem — they're restatements,
+        -- not separate errors.
+        local has_specific = false
+        for _, e in ipairs(errors) do
+          if e.msg:match("^Cannot parse") then
+            has_specific = true
+            break
+          end
+        end
+        if has_specific then
+          local filtered = {}
+          for _, e in ipairs(errors) do
+            local low = e.msg:lower()
+            local is_target_version_warning = low:find("cannot parse code formatted for", 1, true) ~= nil
+            local is_generic_duplicate = low == "parseerror: bad input"
+            if not is_target_version_warning and not is_generic_duplicate then
+              table.insert(filtered, e)
+            end
+          end
+          errors = filtered
+        end
+
         return formatter_name, errors
       end
 
@@ -1420,7 +1451,6 @@ require("lazy").setup({
 
         local qf_items = {}
         local diagnostics = {}
-        local notif_lines = {}
 
         for _, item in ipairs(parsed_errors) do
           if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
@@ -1445,8 +1475,6 @@ require("lazy").setup({
             text = string.format("[%s] %s", formatter, item.msg),
             type = "E",
           })
-
-          table.insert(notif_lines, string.format("  • Line %d:%d: %s", item.lnum or 1, item.col or 1, item.msg))
         end
 
         -- Publish diagnostics on buffer
@@ -1460,8 +1488,14 @@ require("lazy").setup({
           vim.fn.setqflist({}, "a", { title = "Conform Formatter Errors" })
         end
 
-        -- Show notification with real error details
-        local notif_body = string.format("Formatter '%s' failed (%d error%s):\n%s", formatter, #parsed_errors, #parsed_errors > 1 and "s" or "", table.concat(notif_lines, "\n"))
+        -- Show a terse notification; full detail lives in the inline diagnostic and :copen
+        local notif_body
+        if #parsed_errors == 1 then
+          local item = parsed_errors[1]
+          notif_body = string.format("%d:%d: %s", item.lnum or 1, item.col or 1, item.msg)
+        else
+          notif_body = string.format("%d errors — see diagnostics or :copen", #parsed_errors)
+        end
         vim.notify(notif_body, vim.log.levels.ERROR, { title = "Conform: " .. formatter })
       end
 
@@ -2184,6 +2218,16 @@ require("lazy").setup({
         search = false,
       },
     },
+  },
+
+  -- PDF preview: renders pages as images in the buffer via the Kitty graphics protocol.
+  -- j/k scroll pages, h/l pan, +/- zoom, 0 fit width, {n}G jump to page, q close.
+  {
+    "SUZ-tsinghua/pdfpreview.nvim",
+    main = "pdfpreview",
+    lazy = false,
+    build = vim.fn.has("mac") == 1 and "make native" or nil,
+    opts = { auto_open = true },
   },
 
 }, {
@@ -3419,7 +3463,7 @@ end
 
 -- Binary formats an OS viewer can open
 local external_exts = {
-  "pdf", "mp4", "mkv", "avi", "mov", "webm", "mp3", "flac", "wav",
+  "mp4", "mkv", "avi", "mov", "webm", "mp3", "flac", "wav",
   "zip", "tar", "gz", "bz2", "xz", "zst", "7z", "rar", "iso", "whl",
   "docx", "xlsx", "pptx",
 }
@@ -3517,6 +3561,7 @@ vim.api.nvim_create_autocmd("BufReadPre", {
   group = binary_group,
   callback = function(args)
     local path = vim.fn.fnamemodify(args.match, ":p")
+    if path:match("%.pdf$") then return end -- handled by pdfpreview.nvim's own BufReadCmd
     local stat = vim.uv.fs_stat(path)
     if not stat or stat.type ~= "file" then return end
     if is_binary_content(path) then
