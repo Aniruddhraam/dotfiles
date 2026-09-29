@@ -829,7 +829,37 @@ require("lazy").setup({
         if vim.bo[bufnr].filetype == "pdfpreview" then
           -- pdfpreview.nvim only tears down its render state on BufWipeout, which
           -- mini.bufremove's internal `:bdelete!` never fires; reopening the same
-          -- PDF then reuses stale extmark state and errors. Wipe it directly.
+          -- PDF then reuses stale extmark state and errors. Wipe it directly, but
+          -- first move every window off it onto another open buffer (falling back
+          -- to a scratch buffer): with a sidebar open, :bdelete!'s own buffer-picking
+          -- can otherwise hand the window an empty buffer and shift focus to NvimTree.
+          for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+            if vim.api.nvim_win_is_valid(win) then
+              -- Only trust the window's alternate buffer if it's actually loaded. A PDF
+              -- opened via the docx auto-convert flow leaves an unlisted, *unloaded* ghost
+              -- buffer behind for the old "*.docx" name (renaming a buffer never deletes
+              -- its old-name buffer, see :help :file) which can end up as the alternate;
+              -- switching to it would silently re-trigger the whole conversion prompt.
+              local altnr = vim.api.nvim_win_call(win, function() return vim.fn.bufnr("#") end)
+              if altnr > 0 and altnr ~= bufnr and vim.fn.bufloaded(altnr) == 1 then
+                pcall(vim.fn.win_execute, win, "silent! keepalt buffer " .. altnr)
+              end
+              if vim.api.nvim_win_get_buf(win) == bufnr then
+                local best, best_lastused = nil, -1
+                for _, info in ipairs(vim.fn.getbufinfo({ buflisted = 1 })) do
+                  if info.bufnr ~= bufnr and info.loaded == 1 and info.lastused > best_lastused then
+                    best, best_lastused = info.bufnr, info.lastused
+                  end
+                end
+                if best then
+                  pcall(vim.api.nvim_win_set_buf, win, best)
+                else
+                  local scratch = vim.api.nvim_create_buf(true, false)
+                  pcall(vim.api.nvim_win_set_buf, win, scratch)
+                end
+              end
+            end
+          end
           pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
         else
           -- 1. Try mini.bufremove first for graceful buffer detachment
@@ -3043,6 +3073,12 @@ vim.keymap.set("n", "<leader>a", function()
   end
 end, { noremap = true, silent = true, desc = "Toggle Code Structure Sidebar" })
 
+-- File explorer sidebar (nvim-tree)
+vim.keymap.set("n", "<leader>e", function()
+  vim.cmd("NvimTreeToggle")
+  if _G.Fix_Sidebar_Widths then vim.schedule(_G.Fix_Sidebar_Widths) end
+end, { noremap = true, silent = true, desc = "Toggle File Explorer" })
+
 -- =========================================================================
 -- HOME (RETURN TO DASHBOARD)
 -- =========================================================================
@@ -3328,6 +3364,9 @@ vim.keymap.set({ 'i', 'n', 'v', 'x', 's', 'c' }, '<M-S-u>', smart_escape, { nore
 -- Alt+b: backspace
 vim.keymap.set({ 'i', 'c' }, '<M-b>', '<BS>', { noremap = true, silent = true, desc = "Backspace" })
 
+-- Alt+Backspace: plain backspace (avoid it being read as Esc+BS and escaping to Normal mode)
+vim.keymap.set({ 'i', 'c' }, '<M-BS>', '<BS>', { noremap = true, silent = true, desc = "Backspace" })
+
 -- Alt+o: run one Normal-mode command from Insert mode
 vim.keymap.set('i', '<M-o>', '<C-o>', { noremap = true, silent = true, desc = "Execute single Normal command from Insert" })
 vim.keymap.set('i', '<M-O>', '<C-o>', { noremap = true, silent = true, desc = "Execute single Normal command from Insert" })
@@ -3465,7 +3504,7 @@ end
 local external_exts = {
   "mp4", "mkv", "avi", "mov", "webm", "mp3", "flac", "wav",
   "zip", "tar", "gz", "bz2", "xz", "zst", "7z", "rar", "iso", "whl",
-  "docx", "xlsx", "pptx",
+  "xlsx", "pptx",
 }
 -- Tabular/data binaries: show a text preview instead
 local data_exts = { "parquet", "feather", "arrow", "orc", "avro", "npy", "npz", "pkl", "pickle", "h5", "hdf5", "sqlite", "db" }
@@ -3527,7 +3566,36 @@ end
 local function reject_binary(buf, path, msg)
   vim.notify(msg .. ": " .. vim.fn.fnamemodify(path, ":t"), vim.log.levels.WARN)
   vim.schedule(function()
-    if vim.api.nvim_buf_is_valid(buf) then vim.api.nvim_buf_delete(buf, { force = true }) end
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    -- Move every window off this buffer onto another open buffer first (falling back to a
+    -- scratch buffer): with a sidebar open, a raw force-delete's own buffer-picking can
+    -- otherwise hand the window an empty buffer and shift focus onto NvimTree instead of
+    -- another open file.
+    for _, win in ipairs(vim.fn.win_findbuf(buf)) do
+      if vim.api.nvim_win_is_valid(win) then
+        -- Only trust the alternate buffer if it's actually loaded (see the matching
+        -- comment in nvim-tree's safe_delete_buffer for why an unloaded one is unsafe here).
+        local altnr = vim.api.nvim_win_call(win, function() return vim.fn.bufnr("#") end)
+        if altnr > 0 and altnr ~= buf and vim.fn.bufloaded(altnr) == 1 then
+          pcall(vim.fn.win_execute, win, "silent! keepalt buffer " .. altnr)
+        end
+        if vim.api.nvim_win_get_buf(win) == buf then
+          local best, best_lastused = nil, -1
+          for _, info in ipairs(vim.fn.getbufinfo({ buflisted = 1 })) do
+            if info.bufnr ~= buf and info.loaded == 1 and info.lastused > best_lastused then
+              best, best_lastused = info.bufnr, info.lastused
+            end
+          end
+          if best then
+            pcall(vim.api.nvim_win_set_buf, win, best)
+          else
+            local scratch = vim.api.nvim_create_buf(true, false)
+            pcall(vim.api.nvim_win_set_buf, win, scratch)
+          end
+        end
+      end
+    end
+    vim.api.nvim_buf_delete(buf, { force = true })
   end)
 end
 
@@ -3554,6 +3622,54 @@ for _, list in ipairs({ external_exts, data_exts, opaque_exts }) do
   for _, e in ipairs(list) do table.insert(known_patterns, "*." .. e) end
 end
 vim.api.nvim_create_autocmd("BufReadCmd", { group = binary_group, pattern = known_patterns, callback = known_binary_reader })
+
+-- .docx: nvim can't render Word natively, so offer to convert to PDF (LibreOffice) for
+-- in-buffer preview via pdfpreview.nvim, falling back to the OS viewer, or doing nothing.
+local function docx_reader(args)
+  local path = vim.fn.fnamemodify(args.match, ":p")
+  local name = vim.fn.fnamemodify(path, ":t")
+  local soffice = vim.fn.executable("soffice") == 1 and "soffice"
+    or (vim.fn.executable("libreoffice") == 1 and "libreoffice" or nil)
+
+  local function ask_open_externally()
+    local choice = vim.fn.confirm(("Open '%s' in the system viewer?"):format(name), "&Yes\n&No", 2, "Question")
+    if choice == 1 then
+      open_external(path)
+      reject_binary(args.buf, path, "Opened externally")
+    else
+      reject_binary(args.buf, path, "Not opened")
+    end
+  end
+
+  if not soffice then
+    vim.notify("libreoffice/soffice not found: can't convert " .. name .. " to PDF", vim.log.levels.WARN)
+    return ask_open_externally()
+  end
+
+  local choice = vim.fn.confirm(("Convert '%s' to PDF to view in nvim?"):format(name), "&Yes\n&No", 1, "Question")
+  if choice ~= 1 then return ask_open_externally() end
+
+  local pdf_path = vim.fn.fnamemodify(path, ":r") .. ".pdf"
+  show_preview(args.buf, path, { "Converting " .. name .. " to PDF..." })
+  -- LibreOffice overwrites an existing output file of the same name without prompting
+  vim.system(
+    { soffice, "--headless", "--convert-to", "pdf", "--outdir", vim.fn.fnamemodify(path, ":h"), path },
+    { text = true },
+    function(res)
+      vim.schedule(function()
+        if res.code ~= 0 or vim.fn.filereadable(pdf_path) == 0 then
+          vim.notify("PDF conversion failed: " .. vim.trim(res.stderr or ""), vim.log.levels.ERROR)
+          return reject_binary(args.buf, path, "Conversion failed")
+        end
+        -- show_preview already marked the placeholder bufhidden=wipe, so it's dropped once we navigate off it.
+        -- keepalt avoids adding another alternate-buffer hop on top of the one already left behind by
+        -- show_preview's rename (renaming a buffer leaves an unlisted stub for its old name, see :help :file).
+        vim.cmd("keepalt edit " .. vim.fn.fnameescape(pdf_path)) -- triggers pdfpreview.nvim's own BufReadCmd
+      end)
+    end
+  )
+end
+vim.api.nvim_create_autocmd("BufReadCmd", { group = binary_group, pattern = "*.docx", callback = docx_reader })
 
 -- Unknown extensions: check the first 8 KB for NUL bytes; also applies the large-file guard to text files
 local LARGE_FILE_BYTES = 2 * 1024 * 1024
