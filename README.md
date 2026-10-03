@@ -9,9 +9,9 @@ The whole config lives in `init.lua`, split into numbered sections:
 | 0 | Startup tuning (bytecode cache, GC pause, disabled built-in plugins) and `PATH` setup |
 | 1 | lazy.nvim bootstrap and the leader key (`Space`) |
 | 2 | Plugin specifications |
-| 3 | LSP server configuration (native `vim.lsp.config` / `vim.lsp.enable`) |
-| 4 | Editor options, autocmds, and file/layout guards |
-| 5 | Commands and keymaps |
+| 3 | LSP server configuration (native `vim.lsp.config` / `vim.lsp.enable`) and the `Tool_Progress` notifier |
+| 4 | Editor options, autocmds, file/layout guards, external-change watching, and jupytext sync |
+| 5 | Commands and keymaps, plus `BinaryGuard` (binary, document and large-file handling) |
 | 6 | VS Code-style copy / cut / paste |
 | 7 | Terminals (toggleterm, lazygit) |
 
@@ -32,7 +32,7 @@ lazy.nvim bootstraps itself on first launch and installs the plugins. Run `:chec
 - A [Nerd Font](https://www.nerdfonts.com) set in the terminal
 - [`fzf`](https://github.com/junegunn/fzf) and [`fd`](https://github.com/sharkdp/fd) (fuzzy finding and directory browsing)
 - A C compiler (treesitter parsers)
-- Optional: `lazygit`, ImageMagick (`magick`) for images, `jupytext` / `jupyter` for notebooks, `duckdb` (or `pqrs` / `parquet-tools`) for previewing data files
+- Optional: `lazygit`, ImageMagick (`magick`) for images, `jupytext` / `jupyter` for notebooks, `duckdb` (or `pqrs` / `parquet-tools`) for previewing data files, LibreOffice (`soffice`) for `.docx` previews
 
 See [Installing dependencies (Linux)](#installing-dependencies-linux) at the end of this file for the exact commands, which pick the fastest install source for each tool on Fedora.
 
@@ -65,10 +65,10 @@ oxfmt follows the nearest formatting config between the file and its project roo
 | Editing | blink.cmp, mini.pairs, mini.bufremove, conform, treesitter |
 | Git | gitsigns, lazygit (through toggleterm) |
 | Diagnostics and debugging | trouble, nvim-dap with dap-ui and delve (Go) |
-| Notebooks and media | molten-nvim, image.nvim, render-markdown, rainbow_csv |
+| Notebooks and media | molten-nvim, image.nvim, pdfpreview.nvim, render-markdown, rainbow_csv |
 | Sessions and terminal | auto-session, alpha (dashboard), toggleterm |
 
-Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvim` only loads when an image file is opened.
+Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvim` only loads when an image file is opened. `pdfpreview.nvim` loads at startup so it can take over `.pdf` buffers.
 
 ## Key features
 
@@ -76,10 +76,11 @@ Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvi
 - **Sidebar layout.** NvimTree and Aerial keep fixed widths and never take over the window when the last file closes. `<M-e>` and `<M-S-e>` cycle focus between the tree, the code window and the outline.
 - **Tool progress.** Work that never arrives as LSP progress shows in the bottom-right corner in the same style: formatter runs (black, oxfmt, rustfmt and the rest), slow diagnostic re-checks after an edit (vtsls, basedpyright, texlab), jupytext and LibreOffice conversions, NvimTree background deletes, and lazy.nvim's update check.
 - **Notebooks.** `.ipynb` files open as `py:percent` scripts through jupytext and are converted back on save. Molten runs cells inline.
+- **PDF and Word documents.** PDFs render page by page inside the buffer through the Kitty graphics protocol: `j`/`k` scroll, `h`/`l` pan, `+`/`-` zoom, `0` fits the width, `{n}G` jumps to a page and `q` closes. A `.docx` file offers to convert to PDF with LibreOffice for the same preview, or to open in the OS viewer. This needs a terminal that supports the Kitty graphics protocol, such as Ghostty.
 - **Binary and large files.** Known binary types open in the OS viewer, and data files (parquet and similar) show a text preview. Unknown binaries are refused after a NUL-byte check. Files over 2 MB skip syntax, treesitter and LSP.
 - **External changes.** Files changed or deleted on disk are detected on focus, buffer switch and idle, without the blocking E211 prompt.
-- **Terminal buffers.** Terminals hide editor chrome and keep a large scrollback. A mouse drag selects and copies to the system clipboard. Hold Shift while dragging to use Ghostty's own selection instead.
-- **VS Code-style editing.** Shift+motion keys select, `Ctrl+C/X/V` copy, cut and paste, `Ctrl+Z` undoes and `Ctrl+S` saves. Alt+h/j/k/l move the cursor without leaving Insert mode, and `Alt+u` escapes.
+- **Terminal buffers.** Terminals hide editor chrome and keep a large scrollback. A mouse drag selects and copies to the system clipboard. Hold Shift while dragging to use Ghostty's own selection instead. `Ctrl+Click` opens a URL, including one that wraps across lines.
+- **VS Code-style editing.** Shift+motion keys select, `Ctrl+C/X/V` copy, cut and paste, `Ctrl+Z` undoes and `Ctrl+S` saves. Alt+h/j/k/l move the cursor without leaving Insert mode, `Alt+u` escapes, and `Alt+b` / `Alt+Backspace` delete backwards without dropping to Normal mode.
 
 ## Keymaps
 
@@ -92,6 +93,7 @@ The leader key is `Space`. Press it and wait to see every mapping in which-key. 
 | `<leader>d`, `<leader>fd` | Browse directories |
 | `<leader>p` / `<leader>fp` | Restore an active project / open a recent project |
 | `<leader>h` | Save the session and return to the dashboard |
+| `<leader>e` | Toggle the file explorer (adopts the file's project first if none is active) |
 | `<leader>a` | Toggle the Aerial code outline |
 | `<Tab>` / `<S-Tab>` | Next / previous buffer tab |
 | `<leader>w` / `<leader>q` | Close the file or split / quit from the dashboard |
@@ -99,7 +101,7 @@ The leader key is `Space`. Press it and wait to see every mapping in which-key. 
 | `gd`, `gr`, `gh` | LSP definition, references (fzf), hover |
 | `<leader>ca` / `<leader>rn` | Code action / rename |
 | `<leader>xx` | Diagnostics panel (Trouble) |
-| `<leader>ce` | Formatter errors to quickfix |
+| `<leader>cf` / `<leader>ce` | Format the buffer or selection / formatter errors to quickfix |
 | `<leader>gg` | Lazygit |
 | `<leader>gb` | Toggle inline git blame |
 | `<leader>G` | Open the git remote in the browser |
@@ -140,6 +142,18 @@ Search is literal by default: `/` and `?` are prefixed with `\V`.
 - Add a language server with a `vim.lsp.config("name", { ... })` block and a matching `vim.lsp.enable("name")` (section 3), and a formatter in `formatters_by_ft` in the conform spec.
 - Toggle the extras (cursor smear, scrollbar, blame) with the `<leader>u…` and `<leader>gb` keys, or delete their specs to remove them.
 - Update plugins with `:Lazy update` (or `<leader>U`), and commit `lazy-lock.json` to keep installs reproducible.
+- Follow the comment conventions below when adding code.
+
+### Comment conventions
+
+Comments in `init.lua` and `after/ftplugin/python.lua` follow one style:
+
+- Explain *why*, not what the next line already says.
+- Use complete sentences: capitalised, ending in a period. Plugin and section titles are short labels without a period.
+- Wrap at 100 columns.
+- Document functions with LuaLS annotations (`---` description, then `---@param` / `---@return`).
+- Put long explanations above the code rather than trailing it. Short trailing comments are fine for a single option.
+- Number steps (`1.`, `2.`) only when the order matters.
 
 ## Installing dependencies (Linux)
 
@@ -225,12 +239,13 @@ Update everything with `uv tool upgrade --all`. If `jupytext` is missing, the co
 ### Optional tools
 
 - **Java.** `jdtls` and `google-java-format` are only needed for Java work. Download the [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls) release and the [google-java-format](https://github.com/google/google-java-format/releases) jar, and put wrapper scripts named `jdtls` and `google-java-format` on `PATH`.
+- **Document previews.** `.docx` files are converted to PDF with LibreOffice: `sudo dnf install -y libreoffice-writer` provides `soffice`.
 - **Data previews.** `duckdb` is the preferred previewer for parquet and other data files. Download the CLI from [duckdb.org](https://duckdb.org/docs/installation/) into `~/.local/bin`. The config falls back to `pqrs`, then `parquet-tools`.
 
 ### Verify
 
 ```sh
-for t in nvim git fzf fd rg lazygit magick clangd clang-format \
+for t in nvim git fzf fd rg lazygit magick soffice clangd clang-format \
          rust-analyzer rustfmt gopls gofmt dlv texlab taplo \
          vtsls basedpyright-langserver oxlint oxfmt black jupytext; do
   command -v "$t" >/dev/null && echo "ok      $t" || echo "MISSING $t"

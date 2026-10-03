@@ -6,20 +6,25 @@
 --   2. Plugin specifications
 --   3. LSP servers
 --   4. Core editor settings, autocmds, and file/layout guards
---   5. Commands and keymaps (navigation, selection, clipboard, terminals)
+--   5. Commands and keymaps (navigation, selection, clipboard)
+--   6. VS Code-style copy, cut, and paste
+--   7. Terminals (toggleterm, lazygit)
 -- =========================================================================
 
--- Startup: stop the Lua garbage collector while modules load, so no GC sweeps run during startup
+-- =========================================================================
+-- 0. STARTUP TUNING AND PATH SETUP
+-- =========================================================================
+-- Pause the garbage collector while modules load, so no GC sweeps run during startup.
 if collectgarbage then
   collectgarbage("stop")
 end
 
--- Startup: cache compiled Lua bytecode to speed up subsequent launches
+-- Cache compiled Lua bytecode so subsequent launches start faster.
 if vim.loader then
   vim.loader.enable()
 end
 
--- Resume the garbage collector once lazy plugins have finished loading
+-- Resume the garbage collector once the lazy plugins have finished loading.
 vim.api.nvim_create_autocmd("User", {
   pattern = "VeryLazy",
   once = true,
@@ -30,7 +35,8 @@ vim.api.nvim_create_autocmd("User", {
   end,
 })
 
--- Disable built-in plugins that are unused here (archive handlers, netrw, matchit, matchparen)
+-- Disable bundled plugins this config does not use: archive handlers, netrw, matchit, and
+-- matchparen.
 vim.g.loaded_gzip = 1
 vim.g.loaded_zip = 1
 vim.g.loaded_zipPlugin = 1
@@ -50,7 +56,8 @@ vim.g.loaded_netrwFileHandlers = 1
 vim.g.loaded_matchit = 1
 vim.g.loaded_matchparen = 1
 
--- Prepend common user tool directories (local bin, Go, Cargo, npm, scoop) to PATH when they exist
+-- Prepend per-user tool directories (local bin, Go, Cargo, npm, scoop) to PATH when they exist,
+-- so tools installed there are found by the LSP and formatter integrations.
 local is_win = vim.fn.has("win32") == 1
 local path_sep = is_win and ";" or ":"
 local extra_paths = {
@@ -70,19 +77,21 @@ end
 -- 1. PLUGIN MANAGER BOOTSTRAP (lazy.nvim)
 -- =========================================================================
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
+-- Clone lazy.nvim (stable branch) on first launch.
 if not vim.uv.fs_stat(lazypath) then
   vim.fn.system({ "git", "clone", "--filter=blob:none", "https://github.com/folke/lazy.nvim.git", "--branch=stable", lazypath })
 end
 vim.opt.rtp:prepend(lazypath)
 
-vim.g.mapleader = " " -- Leader key: Space (must be set before plugins register keymaps)
+-- The leader must be set before lazy.nvim registers any plugin keymaps.
+vim.g.mapleader = " "
 
 -- =========================================================================
--- 2. PLUGINS CONFIGURATION
+-- 2. PLUGIN SPECIFICATIONS
 -- =========================================================================
 require("lazy").setup({
 
-  -- Colorscheme: TokyoNight, pure-black OLED palette with a transparent background
+  -- Colorscheme: TokyoNight "night" with a pure-black OLED palette and a transparent background
   {
     "folke/tokyonight.nvim",
     lazy = false,
@@ -112,6 +121,7 @@ require("lazy").setup({
           colors.black = "#000000"
         end,
         on_highlights = function(hl, c)
+          -- Functions and methods
           hl["@function"] = { fg = c.blue, bold = true }
           hl["@function.call"] = { fg = c.blue, bold = true }
           hl["@lsp.type.function"] = { fg = c.blue, bold = true }
@@ -121,11 +131,13 @@ require("lazy").setup({
           hl["@function.method"] = { fg = c.cyan, italic = true }
           hl["@lsp.type.method"] = { fg = c.cyan, italic = true }
 
+          -- Variables and properties
           hl["@variable"] = { fg = c.fg }
           hl["@lsp.type.variable"] = { fg = c.fg }
           hl["@property"] = { fg = c.teal }
           hl["@lsp.type.property"] = { fg = c.teal }
 
+          -- Modules and types
           hl["@module"] = { fg = c.orange }
           hl["@namespace"] = { fg = c.orange }
           hl["@lsp.type.namespace"] = { fg = c.orange }
@@ -133,6 +145,7 @@ require("lazy").setup({
           hl["@lsp.type.type"] = { fg = c.magenta }
           hl["@type.builtin"] = { fg = c.magenta, italic = true }
 
+          -- Parameters and constants
           hl["@variable.parameter"] = { fg = c.yellow }
           hl["@lsp.type.parameter"] = { fg = c.yellow }
 
@@ -140,6 +153,7 @@ require("lazy").setup({
           hl["@constant.builtin"] = { fg = c.orange, italic = true }
           hl["@boolean"] = { fg = c.orange }
 
+          -- Constructors and operators
           hl["@constructor"] = { fg = c.magenta, bold = true }
           hl["@function.method.call"] = { fg = c.cyan, italic = true }
 
@@ -147,7 +161,8 @@ require("lazy").setup({
           hl["@string.escape"] = { fg = c.magenta }
           hl["@variable.member"] = { fg = c.teal }
 
-          -- Transparent backgrounds (to match the Ghostty window opacity) on a pure-black palette
+          -- Transparent backgrounds, matching the Ghostty window opacity, over the pure-black
+          -- palette
           hl.Normal = { bg = "NONE", ctermbg = "NONE" }
           hl.NormalNC = { bg = "NONE", ctermbg = "NONE" }
           hl.NormalFloat = { bg = "NONE", ctermbg = "NONE" }
@@ -155,6 +170,7 @@ require("lazy").setup({
           hl.FloatTitle = { fg = c.blue, bg = "NONE", bold = true }
           hl.FloatFooter = { fg = c.dark5 or c.comment, bg = "NONE" }
 
+          -- Gutters, folds, and message area
           hl.SignColumn = { bg = "NONE" }
           hl.SignColumnSB = { bg = "NONE" }
           hl.LineNr = { fg = c.dark5 or "#444b6a", bg = "NONE" }
@@ -164,6 +180,7 @@ require("lazy").setup({
           hl.EndOfBuffer = { fg = "#000000", bg = "NONE" }
           hl.MsgArea = { bg = "NONE" }
 
+          -- Window separators and bars
           hl.WinSeparator = { fg = "#292e42", bg = "NONE" }
           hl.VertSplit = { fg = "#292e42", bg = "NONE" }
           hl.WinBar = { bg = "NONE" }
@@ -175,6 +192,7 @@ require("lazy").setup({
           hl.TabLineFill = { bg = "NONE" }
           hl.TabLineSel = { bg = "NONE" }
 
+          -- Sidebars (nvim-tree, aerial)
           hl.NvimTreeNormal = { bg = "NONE" }
           hl.NvimTreeNormalNC = { bg = "NONE" }
           hl.NvimTreeWinSeparator = { fg = "#292e42", bg = "NONE" }
@@ -184,6 +202,7 @@ require("lazy").setup({
           hl.AerialNormalNC = { bg = "NONE" }
           hl.AerialLine = { bg = "#1f2335" }
 
+          -- fzf-lua
           hl.FzfLuaNormal = { bg = "NONE" }
           hl.FzfLuaBorder = { fg = c.border_highlight or c.blue, bg = "NONE" }
           hl.FzfLuaTitle = { fg = c.blue, bg = "NONE", bold = true }
@@ -195,6 +214,7 @@ require("lazy").setup({
           hl.FzfLuaCursorLine = { bg = "#283457" }
           hl.FzfLuaSearch = { fg = c.blue, bg = "NONE", bold = true }
 
+          -- blink.cmp
           hl.BlinkCmpMenu = { bg = "NONE" }
           hl.BlinkCmpMenuBorder = { fg = c.border_highlight or c.blue, bg = "NONE" }
           hl.BlinkCmpDoc = { bg = "NONE" }
@@ -202,21 +222,25 @@ require("lazy").setup({
           hl.BlinkCmpSignatureHelp = { bg = "NONE" }
           hl.BlinkCmpSignatureHelpBorder = { fg = c.border_highlight or c.blue, bg = "NONE" }
 
+          -- which-key
           hl.WhichKey = { bg = "NONE" }
           hl.WhichKeyNormal = { bg = "NONE" }
           hl.WhichKeyBorder = { fg = c.border_highlight or c.blue, bg = "NONE" }
 
+          -- noice
           hl.NoiceCmdlinePopup = { bg = "NONE" }
           hl.NoiceCmdlinePopupBorder = { fg = c.blue, bg = "NONE" }
           hl.NoiceCmdline = { bg = "NONE" }
           hl.NoicePopup = { bg = "NONE" }
           hl.NoicePopupBorder = { fg = c.blue, bg = "NONE" }
 
+          -- Popup menu
           hl.Pmenu = { bg = "NONE" }
           hl.PmenuSel = { bg = "#283457" }
           hl.PmenuSbar = { bg = "NONE" }
           hl.PmenuThumb = { bg = "#444b6a" }
 
+          -- trouble
           hl.TroubleNormal = { bg = "NONE" }
           hl.TroubleNormalNC = { bg = "NONE" }
         end,
@@ -225,7 +249,7 @@ require("lazy").setup({
     end,
   },
 
-  -- Dashboard (alpha) with project/session shortcuts
+  -- Dashboard (alpha) with project and session shortcuts
   {
     "goolord/alpha-nvim",
     lazy = false,
@@ -253,8 +277,10 @@ require("lazy").setup({
           opts = { position = "center", hl = "Keyword" }
       }
 
-      -- Point the global cwd back at the active project's root. auto-session derives the session name
-      -- from the cwd, so this has to run BEFORE a save (a pre_save hook is too late: the name is fixed by then).
+      --- Point the global cwd back at the active project's root. auto-session derives the session
+      --- name from the cwd, so this must run before a save: a `pre_save` hook is too late because
+      --- the name is already fixed by then.
+      ---@return boolean pinned Whether the cwd was reset to a valid project root
       _G.Pin_Project_Root = function()
         local root = _G._project_root
         if not root or vim.fn.isdirectory(root) ~= 1 then return false end
@@ -262,7 +288,9 @@ require("lazy").setup({
         return true
       end
 
-      -- Whether any listed buffer is a real file (not a directory, scratch or plugin buffer)
+      --- Check whether any listed buffer is a real file (not a directory, scratch, or plugin
+      --- buffer).
+      ---@return boolean
       _G.Has_Session_Files = function()
         for _, buf in ipairs(vim.api.nvim_list_bufs()) do
           local name = vim.api.nvim_buf_get_name(buf)
@@ -273,33 +301,37 @@ require("lazy").setup({
         return false
       end
 
-      -- Save the active project's session under its own root, then tear the project down
+      --- Save the active project's session under its own root, then tear the project down.
       _G.Close_Project = function()
         pcall(function() require("aerial").close() end)
         pcall(function() require("nvim-tree.api").tree.close() end)
-        vim.cmd("silent! wall") -- Save all modified buffers first
-        -- Name the session explicitly after the project root so it can't depend on a drifted/stale cwd
+        vim.cmd("silent! wall") -- Save modified buffers before the session is written.
+        -- Name the session explicitly after the project root, so it cannot depend on a stale cwd.
         local root = _G.Pin_Project_Root() and _G._project_root or nil
-        -- Only save when this instance holds the project's state: its session was restored here, or files were
-        -- opened. Opening via Browse Dirs / Open Project in Tree / `nvim .` doesn't restore the session, so saving
-        -- then would replace the stored tabs with an empty workspace (just the root in the tree).
+        -- Save only when this instance holds the project's state: its session was restored here, or
+        -- files were opened. Opening through Browse Dirs, Open Project in Tree, or `nvim .`
+        -- restores nothing, so saving then would replace the stored tabs with an empty workspace.
         if vim.v.this_session ~= "" or _G.Has_Session_Files() then
           require("auto-session").save_session(root)
         end
-        for _, client in ipairs(vim.lsp.get_clients()) do client:stop() end -- Stop LSP servers on leaving a project (comment out to keep servers running)
+        -- Stop LSP servers when leaving a project. Remove this loop to keep them running.
+        for _, client in ipairs(vim.lsp.get_clients()) do client:stop() end
         for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
           if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].buflisted then
             vim.cmd("bdelete! " .. bufnr)
           end
         end
-        vim.v.this_session = "" -- Clear session to prevent overwriting on next project
+        -- Clear the session name so the next project does not overwrite this one.
+        vim.v.this_session = ""
         _G._project_root = nil
-        -- Leave the old project's directory: nvim-tree keeps its explorer after closing and re-roots on
-        -- DirChanged, so a lingering cwd would resurface the old project's tree in the next one.
+        -- Leave the old project's directory. nvim-tree keeps its explorer after closing and
+        -- re-roots on DirChanged, so a lingering cwd would resurface the old project's tree in the
+        -- next one.
         vim.cmd("cd " .. vim.fn.fnameescape(vim.fn.expand("~")))
       end
 
-      -- Universal project open helper: cleanly opens project in NvimTree and focuses code window
+      --- Open a project directory in NvimTree and focus the main code window.
+      ---@param dir string Project directory (a file path falls back to its parent directory)
       _G.Open_Project_Directory = function(dir)
         if not dir or dir == "" then return end
         dir = vim.fn.expand(dir)
@@ -308,19 +340,20 @@ require("lazy").setup({
         end
         if vim.fn.isdirectory(dir) ~= 1 then return end
 
-        -- Switching away from an open project: save + close it first, so its buffers and session state
-        -- can't leak into the new project's session.
+        -- Switching away from an open project: save and close it first, so its buffers and session
+        -- state cannot leak into the new project's session.
         if _G._project_root and vim.fs.normalize(dir) ~= _G._project_root then
           _G.Close_Project()
         end
 
         vim.v.this_session = ""
         vim.cmd("cd " .. vim.fn.fnameescape(dir))
-        -- Read the root back from the cwd: same canonical form auto-session names sessions from
-        -- (no trailing slash, e.g. fd returns "dir/"), so the name and the saved `cd` always agree.
+        -- Read the root back from the cwd. That is the canonical form auto-session names sessions
+        -- after (no trailing slash, unlike fd's "dir/"), so the session name and its saved `cd`
+        -- always agree.
         _G._project_root = vim.fn.getcwd(-1, -1)
 
-        -- 1. Open and update NvimTree root without focusing it
+        -- 1. Open NvimTree at the new root without focusing it.
         local ok, tree_api = pcall(require, "nvim-tree.api")
         if ok then
           tree_api.tree.open({ path = dir, focus = false })
@@ -330,7 +363,8 @@ require("lazy").setup({
           vim.cmd("NvimTreeOpen " .. vim.fn.fnameescape(dir))
         end
 
-        -- 2. Focus the main code window and initialize a fresh buffer (replacing alpha dashboard if open)
+        -- 2. Focus the main code window, replacing the alpha dashboard with a fresh buffer if it is
+        -- showing.
         for _, win in ipairs(vim.api.nvim_list_wins()) do
           if vim.api.nvim_win_is_valid(win) then
             local buf = vim.api.nvim_win_get_buf(win)
@@ -349,7 +383,7 @@ require("lazy").setup({
         end
       end
 
-      -- Custom function to search saved projects / sessions and jump straight into NvimTree
+      --- Pick a saved project or session and open it directly in NvimTree.
       _G.Open_Project_In_Tree = function()
         local status_ok, fzf = pcall(require, "fzf-lua")
         if not status_ok then return end
@@ -363,7 +397,7 @@ require("lazy").setup({
           end
         end
 
-        -- 1. Legacy project.nvim history (only used if that data still exists on disk)
+        -- 1. Legacy project.nvim history (only if that data still exists on disk).
         local p_ok, p_history = pcall(require, "project_nvim.utils.history")
         if p_ok and p_history.get_recent_projects then
           for _, p in ipairs(p_history.get_recent_projects()) do add_project(p) end
@@ -378,7 +412,8 @@ require("lazy").setup({
           end
         end
 
-        -- 2. Projects recovered from auto-session's saved session files
+        -- 2. Projects recovered from auto-session's saved session files (names are percent-encoded
+        -- paths).
         local as_ok, auto_session = pcall(require, "auto-session")
         if as_ok then
           local root_dir = auto_session.get_root_dir()
@@ -408,7 +443,7 @@ require("lazy").setup({
         })
       end
 
-      -- Restore saved active session with full tab/buffer layout
+      --- Open the session picker to restore a saved session with its full tab and buffer layout.
       _G.Search_Sessions = function()
         local status_ok, as = pcall(require, "auto-session")
         if not status_ok then return end
@@ -420,7 +455,7 @@ require("lazy").setup({
         end
       end
 
-      -- Directory browser using fzf-lua (searches from user home / root directory across all OSes)
+      --- Browse directories under the home directory with fzf-lua (fd-backed, up to 5 levels deep).
       _G.Fzf_Browse_Dirs = function()
         local status_ok, fzf = pcall(require, "fzf-lua")
         if not status_ok then return end
@@ -469,7 +504,8 @@ require("lazy").setup({
 
       alpha.setup(dashboard.opts)
 
-      -- Error handling for dashboard: silence accidental keystrokes that would cause "E21: Cannot make changes, 'modifiable' is off"
+      -- Silence accidental keystrokes on the dashboard, which would raise "E21: Cannot make
+      -- changes, 'modifiable' is off".
       local function setup_alpha_key_handler(bufnr)
         bufnr = (bufnr and bufnr ~= 0) and bufnr or vim.api.nvim_get_current_buf()
         local preserve_keys = {
@@ -479,7 +515,7 @@ require("lazy").setup({
           ["<Esc>"] = true, [":"] = true, [" "] = true,
         }
 
-        -- Preserve button shortcuts configured in dashboard
+        -- Keep the shortcuts configured on the dashboard buttons.
         for _, button in ipairs(dashboard.section.buttons.val or {}) do
           if button.opts and button.opts.shortcut then
             local sc = button.opts.shortcut:match("%s*(%S+)%s*")
@@ -574,14 +610,14 @@ require("lazy").setup({
     end
   },
 
-  -- Session management (auto-session): saves and restores tabs/buffers per project
+  -- Session management (auto-session): saves and restores tabs and buffers per project
   {
     "rmagatti/auto-session",
     event = "VeryLazy",
     cmd = { "AutoSession", "SessionSave", "SessionRestore", "SessionDelete", "SessionSearch" },
     config = function()
       local function clean_unnamed_buffers()
-        -- Collect all buffers currently active in any window (normal or floating)
+        -- Collect every buffer shown in any window, normal or floating.
         local visible_bufs = {}
         for _, win in ipairs(vim.api.nvim_list_wins()) do
           if vim.api.nvim_win_is_valid(win) then
@@ -590,8 +626,8 @@ require("lazy").setup({
           end
         end
 
-        -- 1. Wipe only orphaned, listed empty placeholder/alpha buffers and directory buffers
-        --    (never delete unlisted/plugin/nui/floating buffers)
+        -- 1. Wipe orphaned, listed placeholder buffers: empty ones, alpha, and directory buffers.
+        --    Never delete unlisted, plugin, nui, or floating buffers.
         for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
           if vim.api.nvim_buf_is_valid(bufnr) then
             local name = vim.api.nvim_buf_get_name(bufnr)
@@ -602,20 +638,21 @@ require("lazy").setup({
             local line_count = vim.api.nvim_buf_line_count(bufnr)
             local is_empty = (line_count <= 1 and (vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] or "") == "")
 
-            -- Target Alpha dashboard buffer or empty unnamed listed buffer created during startup
+            -- Target the alpha dashboard buffer, or an empty unnamed listed buffer created during
+            -- startup.
             if ft == "alpha" then
               pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
             elseif listed and name == "" and bt == "" and is_empty and not modified and not visible_bufs[bufnr] then
               pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
             elseif listed and bt == "" and name ~= "" and vim.fn.isdirectory(name) == 1 then
-              -- `nvim .` / `:e dir` leave the directory itself as a buffer; saved into a session, restoring it
-              -- just reopens the root in the tree in place of the project's files
+              -- `nvim .` and `:e dir` leave the directory itself as a buffer. Saved into a session,
+              -- it would reopen the root in the tree in place of the project's files.
               pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
             end
           end
         end
 
-        -- 2. Close any orphaned blank window splits
+        -- 2. Close orphaned blank window splits.
         local file_wins = {}
         for _, win in ipairs(vim.api.nvim_list_wins()) do
           if vim.api.nvim_win_is_valid(win) then
@@ -651,7 +688,9 @@ require("lazy").setup({
       require("auto-session").setup({
         log_level = "error",
         suppressed_dirs = { "~/", "~/Downloads", "/" },
-        auto_restore = false, -- Loaded at VeryLazy (after VimEnter), so auto-restore can't run; sessions open from the dashboard
+        -- auto-session loads at VeryLazy (after VimEnter), so auto-restore cannot run. Sessions
+        -- are opened from the dashboard instead.
+        auto_restore = false,
         auto_save = true,
         bypass_save_filetypes = { "alpha" },
         pre_save_cmds = {
@@ -665,8 +704,9 @@ require("lazy").setup({
         },
         post_restore_cmds = {
           clean_unnamed_buffers,
-          -- A session's name IS its project directory, so trust that over the `cd` line inside the file
-          -- (older saves could carry another project's cd). Re-pin the root so later saves stay consistent.
+          -- A session's name is its project directory, so trust that over the `cd` line inside the
+          -- file (older saves could carry another project's cd), and re-pin the root so later saves
+          -- stay consistent.
           function(session_name)
             local root = vim.fs.normalize(session_name or "")
             if vim.fn.isdirectory(root) ~= 1 then root = vim.fn.getcwd() end
@@ -678,14 +718,14 @@ require("lazy").setup({
         },
       })
 
-      -- auto-session names the session from the cwd at the moment it saves (VimLeavePre goes through here).
-      -- Pin the cwd to the active project's root first, so a drifted cwd can't file one project's
-      -- buffers under another project's name.
+      -- auto-session names the session from the cwd at the moment it saves (VimLeavePre goes
+      -- through here), so pin the cwd to the active project's root first. Otherwise a drifted cwd
+      -- could file one project's buffers under another project's name.
       local as = require("auto-session")
       local auto_save_session = as.auto_save_session
       as.auto_save_session = function(...)
-        -- Same rule as Close_Project: no session restored and no files opened (e.g. `nvim .` then quit)
-        -- means there's nothing of the project's here, so keep its saved session as is
+        -- Same rule as Close_Project: with no session restored and no files opened (e.g. `nvim .`
+        -- then quit), there is nothing of the project's here, so keep its saved session as is.
         if vim.v.this_session == "" and not _G.Has_Session_Files() then return false end
         _G.Pin_Project_Root()
         return auto_save_session(...)
@@ -715,10 +755,10 @@ require("lazy").setup({
     },
     config = function()
       require("aerial").setup({
-        -- Try LSP first, fall back to treesitter (covers markdown, etc.)
+        -- Prefer LSP symbols and fall back to treesitter (covers markdown and similar).
         backends = { "lsp", "treesitter" },
-        -- One outline sidebar that follows the focused split ("window" mode opens one sidebar per split,
-        -- stacking several at the right edge and squeezing the code panes)
+        -- A single outline sidebar that follows the focused split. "window" mode would open one
+        -- sidebar per split, stacking several at the right edge and squeezing the code panes.
         attach_mode = "global",
         layout = {
           max_width = { 35, 0.25 },
@@ -734,7 +774,7 @@ require("lazy").setup({
             vim.schedule(_G.Fix_Sidebar_Widths)
           end
         end,
-        -- Never opens on its own: <leader>a toggles it
+        -- Never open automatically: <leader>a toggles the outline.
         open_automatic = false,
         filter_kind = {
           _ = {
@@ -764,14 +804,14 @@ require("lazy").setup({
           nested_top = "│  ",
           whitespace = "   ",
         },
-        -- Highlight & auto-scroll to the current symbol as the cursor moves
+        -- Highlight and scroll to the current symbol as the cursor moves.
         highlight_on_hover = true,
         autojump = true,
         close_on_select = false,
-        -- Keymaps inside the aerial window
+        -- Keymaps inside the aerial window.
         keymaps = {
-          ["<CR>"] = "actions.tree_toggle",  -- Enter collapses/expands nodes
-          ["o"] = "actions.jump",             -- 'o' to jump to symbol
+          ["<CR>"] = "actions.tree_toggle", -- Collapse or expand the node.
+          ["o"] = "actions.jump", -- Jump to the symbol.
         },
       })
     end
@@ -846,27 +886,26 @@ require("lazy").setup({
     config = function()
       local is_win = vim.fn.has("win32") == 1
 
-      --- Safely delete a buffer without closing windows or corrupting sidebar layouts
-      ---@param bufnr? integer Buffer number to delete (defaults to current buffer)
-      ---@param force? boolean Force delete modified buffer
+      --- Delete a buffer without closing windows or corrupting the sidebar layout.
+      ---@param bufnr? integer Buffer number to delete (defaults to the current buffer)
+      ---@param force? boolean Delete even if the buffer has unsaved changes
       local function safe_delete_buffer(bufnr, force)
         bufnr = (bufnr and bufnr ~= 0) and bufnr or vim.api.nvim_get_current_buf()
         if not vim.api.nvim_buf_is_valid(bufnr) then return end
 
         if vim.bo[bufnr].filetype == "pdfpreview" then
-          -- pdfpreview.nvim only tears down its render state on BufWipeout, which
-          -- mini.bufremove's internal `:bdelete!` never fires; reopening the same
-          -- PDF then reuses stale extmark state and errors. Wipe it directly, but
-          -- first move every window off it onto another open buffer (falling back
-          -- to a scratch buffer): with a sidebar open, :bdelete!'s own buffer-picking
-          -- can otherwise hand the window an empty buffer and shift focus to NvimTree.
+          -- pdfpreview.nvim only tears down its render state on BufWipeout, which mini.bufremove's
+          -- internal `:bdelete!` never fires. Reopening the same PDF would then reuse stale extmark
+          -- state and error. Wipe the buffer directly instead, but first move every window off it
+          -- onto another open buffer (falling back to a scratch buffer): with a sidebar open, the
+          -- replacement that `:bdelete!` picks can be an empty buffer and shift focus to NvimTree.
           for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
             if vim.api.nvim_win_is_valid(win) then
-              -- Only trust the window's alternate buffer if it's actually loaded. A PDF
-              -- opened via the docx auto-convert flow leaves an unlisted, *unloaded* ghost
-              -- buffer behind for the old "*.docx" name (renaming a buffer never deletes
-              -- its old-name buffer, see :help :file) which can end up as the alternate;
-              -- switching to it would silently re-trigger the whole conversion prompt.
+              -- Trust the window's alternate buffer only if it is loaded. A PDF opened through the
+              -- docx auto-convert flow leaves an unlisted, unloaded ghost buffer under the old
+              -- "*.docx" name (renaming a buffer never deletes the buffer for its old name, see
+              -- :help :file). It can end up as the alternate, and switching to it would silently
+              -- re-trigger the conversion prompt.
               local altnr = vim.api.nvim_win_call(win, function() return vim.fn.bufnr("#") end)
               if altnr > 0 and altnr ~= bufnr and vim.fn.bufloaded(altnr) == 1 then
                 pcall(vim.fn.win_execute, win, "silent! keepalt buffer " .. altnr)
@@ -889,12 +928,13 @@ require("lazy").setup({
           end
           pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
         else
-          -- 1. Try mini.bufremove first for graceful buffer detachment
+          -- 1. Prefer mini.bufremove for a graceful detach.
           local ok_mini, mini_bufremove = pcall(require, "mini.bufremove")
           if ok_mini and mini_bufremove.delete then
             pcall(mini_bufremove.delete, bufnr, force or false)
           else
-            -- Fallback: in every window showing this buffer, set a clean scratch buffer so the window is preserved
+            -- Fallback: show a clean scratch buffer in every window displaying this buffer, so the
+            -- windows survive.
             for _, win in ipairs(vim.api.nvim_list_wins()) do
               if vim.api.nvim_win_is_valid(win) and vim.api.nvim_win_get_buf(win) == bufnr then
                 local scratch = vim.api.nvim_create_buf(true, false)
@@ -905,7 +945,7 @@ require("lazy").setup({
           end
         end
 
-        -- 2. Check if any normal code buffers remain open in visible windows
+        -- 2. Check whether any normal code buffer is still visible.
         local has_code_win = false
         for _, win in ipairs(vim.api.nvim_list_wins()) do
           if vim.api.nvim_win_is_valid(win) then
@@ -922,12 +962,12 @@ require("lazy").setup({
           end
         end
 
-        -- 3. If no active code file is open, close Aerial so it doesn't monopolize the screen
+        -- 3. With no code file open, close Aerial so it does not take over the screen.
         if not has_code_win then
           pcall(function() require("aerial").close() end)
         end
 
-        -- 4. Reload NvimTree and preserve fixed sidebar widths
+        -- 4. Reload NvimTree and restore the fixed sidebar widths.
         local ok_tree, tree_api = pcall(require, "nvim-tree.api")
         if ok_tree and tree_api.tree.is_visible() then
           pcall(tree_api.tree.reload)
@@ -939,7 +979,7 @@ require("lazy").setup({
 
       _G.Safe_Delete_Buffer = safe_delete_buffer
 
-      --- Finds or creates a normal code window (outside NvimTree and Aerial sidebars)
+      --- Find a normal code window (not NvimTree or Aerial), creating one if needed.
       ---@return integer winid The window ID of the code window
       local function ensure_code_window()
         for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -1000,9 +1040,9 @@ require("lazy").setup({
 
       _G.Ensure_Code_Window = ensure_code_window
 
-      --- Asynchronously delete a single file or directory in the background
+      --- Delete a file or directory asynchronously, in the background.
       ---@param target_path string Path to delete
-      ---@param on_done? fun(success: boolean) Callback on completion
+      ---@param on_done? fun(success: boolean) Called when the delete finishes
       local function async_delete_single(target_path, on_done)
         if not target_path or target_path == "" then return end
         local is_dir = vim.fn.isdirectory(target_path) == 1
@@ -1028,7 +1068,7 @@ require("lazy").setup({
           vim.schedule(function()
             if obj.code == 0 then
               progress:finish({ title = "Deleted " .. name })
-              -- Clean up any open buffers matching the deleted path safely
+              -- Wipe any open buffers for the deleted path.
               for _, buf in ipairs(vim.api.nvim_list_bufs()) do
                 if vim.api.nvim_buf_is_valid(buf) then
                   local buf_name = vim.api.nvim_buf_get_name(buf)
@@ -1047,9 +1087,9 @@ require("lazy").setup({
         end)
       end
 
-      --- Asynchronously delete multiple paths in parallel
-      ---@param paths string[] List of paths to delete
-      ---@param on_done? fun(all_success: boolean) Callback on completion
+      --- Delete several paths asynchronously, in parallel.
+      ---@param paths string[] Paths to delete
+      ---@param on_done? fun(all_success: boolean) Called when every delete has finished
       local function async_delete_multiple(paths, on_done)
         if not paths or #paths == 0 then return end
         local total = #paths
@@ -1067,11 +1107,13 @@ require("lazy").setup({
         end
       end
 
-      -- Expose globally for use anywhere in Neovim
+      -- Expose the delete helpers globally so other sections of this config can call them.
       _G.Async_Delete_Path = async_delete_single
       _G.Async_Delete_Paths = async_delete_multiple
 
-      --- Custom delete action for NvimTree (replaces blocking synchronous deletion on 'd' and 'D')
+      --- NvimTree delete action that runs in the background (marked nodes, else the node under the
+      --- cursor). Replaces the blocking synchronous delete on `d` and `D`.
+      ---@param node? table NvimTree node to delete (defaults to the node under the cursor)
       local function nvim_tree_async_remove(node)
         local api = require("nvim-tree.api")
         local marks = api.marks.list()
@@ -1117,13 +1159,14 @@ require("lazy").setup({
       end
 
       require("nvim-tree").setup({
-        sync_root_with_cwd = true, -- Follow cwd changes so tree matches project root
+        -- Follow cwd changes so the tree always matches the project root.
+        sync_root_with_cwd = true,
         on_attach = function(bufnr)
           local api = require("nvim-tree.api")
           api.config.mappings.default_on_attach(bufnr)
           vim.keymap.set("n", "q", "<cmd>wincmd p<CR>", { buffer = bufnr, noremap = true, silent = true, desc = "Return to code" })
 
-          -- Override blocking deletion keys ('d' and 'D') with async background execution
+          -- Replace the blocking delete on `d` and `D` with the background delete.
           vim.keymap.set("n", "d", nvim_tree_async_remove, { buffer = bufnr, noremap = true, silent = true, desc = "Async Delete (Background)" })
           vim.keymap.set("n", "D", nvim_tree_async_remove, { buffer = bufnr, noremap = true, silent = true, desc = "Async Delete (Background)" })
         end,
@@ -1137,7 +1180,8 @@ require("lazy").setup({
             quit_on_open = false,
             resize_window = false,
             window_picker = {
-              enable = false, -- Open files in the split that was focused last, instead of prompting for a letter
+              -- Open files in the split that was focused last, instead of prompting for a letter.
+              enable = false,
               picker = "default",
               chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
               exclude = {
@@ -1159,7 +1203,9 @@ require("lazy").setup({
             "dist",
             "__pycache__",
           },
-          max_events = 0, -- Set to 0 (unlimited) to prevent disabling watcher during directory deletions on Windows; matches Linux default
+          -- 0 means unlimited. It keeps the watcher from being disabled during large directory
+          -- deletions (needed on Windows; matches the Linux default).
+          max_events = 0,
         },
         renderer = {
           indent_markers = {
@@ -1178,7 +1224,8 @@ require("lazy").setup({
           highlight_diagnostics = true,
           icons = {
             show = {
-              git = false, -- Disabled per request
+              -- No git status icons in the tree.
+              git = false,
             },
           },
         },
@@ -1196,8 +1243,9 @@ require("lazy").setup({
     config = function()
       require("bufferline").setup({
         options = {
-          -- The tab bar is shared by all splits: closing a tab closes the file and its pane (asking about
-          -- unsaved changes), and clicking a tab whose file is already in a split jumps to that pane
+          -- The tab bar is shared by all splits: closing a tab closes the file and its pane (asking
+          -- about unsaved changes), and clicking a tab whose file is already open in a split jumps
+          -- to that pane.
           close_command = function(bufnr) vim.schedule(function() _G.Close_File(bufnr) end) end,
           right_mouse_command = function(bufnr) vim.schedule(function() _G.Close_File(bufnr) end) end,
           left_mouse_command = function(bufnr) _G.Show_Buffer(bufnr) end,
@@ -1215,7 +1263,8 @@ require("lazy").setup({
           close_button = { bg = "NONE" },
           close_button_visible = { bg = "NONE" },
           close_button_selected = { bg = "NONE" },
-          -- Three tiers: focused pane (bright, bold, blue bar), shown in another split (mid, dim bar), hidden (comment)
+          -- Three tiers: focused pane (bright, bold, blue bar), visible in another split (dimmer,
+          -- dim bar), hidden (comment color).
           buffer_visible = { fg = "#a9b1d6", bg = "NONE" },
           buffer_selected = { fg = "#c0caf5", bg = "NONE", bold = true, italic = false },
           numbers = { bg = "NONE" },
@@ -1271,14 +1320,13 @@ require("lazy").setup({
         "java", "latex", "bibtex",
       })
 
-      -- The new nvim-treesitter (main branch) only installs parsers;
-      -- it does NOT enable highlighting automatically.
-      -- We must explicitly start treesitter highlighting for each buffer.
+      -- The main branch of nvim-treesitter only installs parsers and does not enable highlighting,
+      -- so start treesitter explicitly for each buffer.
       vim.api.nvim_create_autocmd("FileType", {
         callback = function(args)
           local ok = pcall(vim.treesitter.start, args.buf)
           if ok then
-            -- Disable legacy regex syntax highlighting when treesitter is active
+            -- Turn off legacy regex syntax highlighting while treesitter is active.
             vim.bo[args.buf].syntax = ""
           end
         end,
@@ -1295,9 +1343,9 @@ require("lazy").setup({
       local conform = require("conform")
       local conform_ns = vim.api.nvim_create_namespace("conform_formatter_errors")
 
-      --- Parse conform / formatter error messages into structured items
+      --- Parse conform or formatter error output into structured items.
       ---@param err_str string Raw error string or conform log chunk
-      ---@param default_bufnr? integer Current buffer number if available
+      ---@param default_bufnr? integer Current buffer number, if available
       ---@return string formatter_name
       ---@return table[] parsed_errors
       local function parse_formatter_error(err_str, default_bufnr)
@@ -1316,9 +1364,9 @@ require("lazy").setup({
 
         for _, raw_line in ipairs(lines) do
           local line = vim.trim(raw_line)
-          -- Strip log timestamp and level prefix: e.g. "2026-08-17 08:27:03[ERROR] "
+          -- Strip the log timestamp and level prefix, e.g. "2026-08-17 08:27:03[ERROR] ".
           line = line:gsub("^%d%d%d%d%-%d%d%-%d%d %d%d:%d%d:%d%d%[[%w_]+%]%s*", "")
-          -- Strip Formatter '<name>' error: prefix
+          -- Strip the "Formatter '<name>' error:" prefix.
           local stripped_fmt, rest = line:match("^Formatter '([^']+)'%s*error:%s*(.*)")
           if stripped_fmt then
             formatter_name = stripped_fmt
@@ -1334,7 +1382,7 @@ require("lazy").setup({
           if line ~= "" then
             local parsed = nil
 
-            -- Pattern 1: Black / Python "error: cannot format <filename>: Cannot parse: <line>:<col>"
+            -- Pattern 1: Black, "error: cannot format <file>: Cannot parse: <line>:<col>".
             local black_file, black_l, black_c = line:match("error:%s*cannot format%s+([^:]+):%s*Cannot parse.-:%s*(%d+):(%d+)")
             if black_file then
               parsed = {
@@ -1345,7 +1393,7 @@ require("lazy").setup({
               }
             end
 
-            -- Pattern 2: Ruff / Python "error: Failed to parse <filename>:<line>:<col>: <msg>"
+            -- Pattern 2: Ruff, "error: Failed to parse <file>:<line>:<col>: <msg>".
             if not parsed then
               local ruff_file, ruff_l, ruff_c, ruff_msg = line:match("error:%s*Failed to parse%s+([^:]+):(%d+):(%d+):%s*(.+)")
               if ruff_file then
@@ -1358,8 +1406,8 @@ require("lazy").setup({
               end
             end
 
-            -- Pattern 2: Standard input with path prefix or <standard input>:
-            -- e.g. "C:\...\<standard input>:11:8: expected ')', found ':='"
+            -- Pattern 3: standard input, with or without a path prefix, e.g.
+            -- "C:\...\<standard input>:11:8: expected ')', found ':='".
             if not parsed then
               local stdin_prefix, l, c, msg = line:match("^(.-)[<\\]?standard input>?:(%d+):(%d+):%s*(.+)")
               if stdin_prefix and l and c and msg then
@@ -1372,7 +1420,8 @@ require("lazy").setup({
               end
             end
 
-            -- Pattern 3: Windows drive letter paths like "C:\path\to\file.go:11:8: msg" or "C:/path/file.py:11:8: msg"
+            -- Pattern 4: Windows drive-letter paths, e.g. "C:\path\to\file.go:11:8: msg" or
+            -- "C:/path/file.py:11:8: msg".
             if not parsed then
               local drive, rest_f, l, c, msg = line:match("^([a-zA-Z]):[\\/](.-):(%d+):(%d+):%s*(.+)")
               if drive and rest_f and l and c and msg then
@@ -1385,7 +1434,7 @@ require("lazy").setup({
               end
             end
 
-            -- Pattern 4: Generic "<file>:<line>:<col>: <msg>"
+            -- Pattern 5: generic "<file>:<line>:<col>: <msg>".
             if not parsed then
               local f, l, c, msg = line:match("^([^:]+):(%d+):(%d+):%s*(.+)")
               if f and l and c and msg and not f:match("^[a-zA-Z]$") then
@@ -1398,7 +1447,7 @@ require("lazy").setup({
               end
             end
 
-            -- Pattern 5: Prettier SyntaxError: "[error] <file>: SyntaxError: <msg> (<line>:<col>)"
+            -- Pattern 6: Prettier, "[error] <file>: SyntaxError: <msg> (<line>:<col>)".
             if not parsed then
               local pf, pmsg, pl, pc = line:match("%[?error%]?%s*([^:]+):%s*(.-)%s*%((%d+):(%d+)%)")
               if pf and pl and pc then
@@ -1411,7 +1460,7 @@ require("lazy").setup({
               end
             end
 
-            -- Pattern 6: Python traceback "File "<stdin>", line 10" or "File "foo.py", line 10"
+            -- Pattern 7: Python traceback, 'File "<stdin>", line 10' or 'File "foo.py", line 10'.
             if not parsed then
               local py_f, py_l = line:match('File "([^"]+)", line (%d+)')
               if py_f and py_l then
@@ -1424,7 +1473,7 @@ require("lazy").setup({
               end
             end
 
-            -- Pattern 7: Line without column "<file>:<line>: <msg>"
+            -- Pattern 8: no column, "<file>:<line>: <msg>".
             if not parsed then
               local f, l, msg = line:match("^([^:]+):(%d+):%s*(.+)")
               if f and l and msg and not f:match("^[a-zA-Z]$") then
@@ -1437,7 +1486,7 @@ require("lazy").setup({
               end
             end
 
-            -- Fallback if line has error content
+            -- Fallback: keep any line that looks like an error, warning, or timeout.
             local l_low = line:lower()
             if not parsed and (l_low:find("error") or l_low:find("fail") or l_low:find("timeout") or l_low:find("timed out") or l_low:find("syntax") or l_low:find("warn")) then
               parsed = {
@@ -1460,10 +1509,9 @@ require("lazy").setup({
           end
         end
 
-        -- Drop Black's target-version safety-check warning and the generic
-        -- "ParseError: bad input" duplicate once a specific "Cannot parse"
-        -- error already pinpoints the real problem — they're restatements,
-        -- not separate errors.
+        -- Drop Black's target-version safety-check warning and the generic "ParseError: bad input"
+        -- line once a specific "Cannot parse" error pinpoints the real problem. They only restate
+        -- it.
         local has_specific = false
         for _, e in ipairs(errors) do
           if e.msg:match("^Cannot parse") then
@@ -1487,14 +1535,17 @@ require("lazy").setup({
         return formatter_name, errors
       end
 
-      --- Clear buffer diagnostics from conform
+      --- Clear formatter diagnostics from a buffer.
+      ---@param bufnr? integer Buffer to clear (ignored if invalid)
       local function clear_conform_errors(bufnr)
         if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
           vim.diagnostic.reset(conform_ns, bufnr)
         end
       end
 
-      --- Dispatch conform errors to diagnostics, quickfix list, and notification
+      --- Dispatch formatter errors to diagnostics, the quickfix list, and a notification.
+      ---@param err_str string Raw formatter error output
+      ---@param bufnr? integer Buffer the errors belong to
       local function handle_conform_errors(err_str, bufnr)
         if not err_str or err_str == "" then return end
         if err_str == "No formatters available for buffer" or err_str:find("No formatters available") or err_str:find("buffer was deleted") then
@@ -1535,18 +1586,18 @@ require("lazy").setup({
           })
         end
 
-        -- Publish diagnostics on buffer
+        -- Publish the errors as diagnostics on the buffer.
         if bufnr and vim.api.nvim_buf_is_valid(bufnr) and #diagnostics > 0 then
           vim.diagnostic.set(conform_ns, bufnr, diagnostics)
         end
 
-        -- Update Quickfix list
+        -- Replace the quickfix list with the errors.
         if #qf_items > 0 then
           vim.fn.setqflist(qf_items, "r")
           vim.fn.setqflist({}, "a", { title = "Conform Formatter Errors" })
         end
 
-        -- Show a terse notification; full detail lives in the inline diagnostic and :copen
+        -- Show a terse notification; the full detail lives in the inline diagnostic and `:copen`.
         local notif_body
         if #parsed_errors == 1 then
           local item = parsed_errors[1]
@@ -1557,7 +1608,10 @@ require("lazy").setup({
         vim.notify(notif_body, vim.log.levels.ERROR, { title = "Conform: " .. formatter })
       end
 
-      --- Format buffer with error handling
+      --- Format a buffer synchronously, surfacing formatter errors as diagnostics and quickfix
+      --- items.
+      ---@param bufnr? integer Buffer to format (defaults to the current buffer)
+      ---@param opts? table Extra options merged over the default `conform.format` options
       local function format_buffer(bufnr, opts)
         bufnr = (bufnr and bufnr ~= 0) and bufnr or vim.api.nvim_get_current_buf()
         opts = opts or {}
@@ -1577,9 +1631,10 @@ require("lazy").setup({
         end)
       end
 
-      -- oxfmt style per project: the nearest oxfmt or Prettier config between the file and its project root wins,
-      -- otherwise the global style in formatters/oxfmt.json. oxfmt only discovers some of these names itself and
-      -- ignores Prettier configs, so the chosen config is always passed explicitly with -c.
+      -- oxfmt style per project: the nearest oxfmt or Prettier config between the file and its
+      -- project root wins; otherwise the global style in formatters/oxfmt.json applies. oxfmt only
+      -- discovers some of these names itself and ignores Prettier configs, so the chosen config is
+      -- always passed explicitly with `-c`.
       local OXFMT_CONFIGS = {
         ".oxfmtrc.json", ".oxfmtrc.jsonc",
         "oxfmt.config.ts", "oxfmt.config.mts", "oxfmt.config.cts", "oxfmt.config.js", "oxfmt.config.mjs", "oxfmt.config.cjs",
@@ -1588,7 +1643,8 @@ require("lazy").setup({
         ".prettierrc", ".prettierrc.json", ".prettierrc.json5", ".prettierrc.yaml", ".prettierrc.yml", ".prettierrc.toml",
         ".prettierrc.js", ".prettierrc.mjs", ".prettierrc.cjs", ".prettierrc.ts", ".prettierrc.mts", ".prettierrc.cts",
         "prettier.config.js", "prettier.config.mjs", "prettier.config.cjs", "prettier.config.ts", "prettier.config.mts", "prettier.config.cts",
-        "package.json", "package.yaml", -- only with a "prettier" key
+        -- These count only when they contain a "prettier" key.
+        "package.json", "package.yaml",
       }
       local OXFMT_GLOBAL = vim.fn.stdpath("config") .. "/formatters/oxfmt.json"
 
@@ -1605,7 +1661,9 @@ require("lazy").setup({
         return false
       end
 
-      ---Nearest formatting config from the file's directory up to its project root (at the same level, oxfmt beats Prettier)
+      --- Find the nearest formatting config, from the file's directory up to its project root.
+      --- At the same level, an oxfmt config beats a Prettier config.
+      ---@param filename string Absolute path of the file being formatted
       ---@return "oxfmt"|"prettier"|nil kind, string? path, string root
       local function find_format_config(filename)
         local root = (_G._project_root and vim.fs.relpath(_G._project_root, filename) and _G._project_root)
@@ -1625,9 +1683,9 @@ require("lazy").setup({
         return nil, nil, root
       end
 
-      -- oxfmt takes Prettier settings only through `--migrate=prettier`, which writes .oxfmtrc.json into its cwd. Run it
-      -- in a cache dir that links to the project's config (links keep a JS config's relative imports working), and
-      -- redo it whenever the Prettier config changes.
+      -- oxfmt takes Prettier settings only through `--migrate=prettier`, which writes .oxfmtrc.json
+      -- into its cwd. Run it in a cache directory that links to the project's config (links keep a
+      -- JS config's relative imports working), and redo it whenever the Prettier config changes.
       local prettier_failures = {}
       local function oxfmt_config_from_prettier(path)
         local dir = vim.fn.stdpath("cache") .. "/oxfmt-prettier/" .. vim.fn.sha256(path):sub(1, 16)
@@ -1659,9 +1717,9 @@ require("lazy").setup({
         return out
       end
 
-      -- A project's .editorconfig still sets indentation, line width and line endings over the global style. oxfmt
-      -- reads only the .editorconfig nearest its cwd, so use the merged, glob-matched properties Neovim applied to
-      -- the buffer (b:editorconfig) instead.
+      -- A project's .editorconfig still sets indentation, line width, and line endings on top of
+      -- the global style. oxfmt reads only the .editorconfig nearest its cwd, so use the merged,
+      -- glob-matched properties Neovim already applied to the buffer (`b:editorconfig`) instead.
       local function global_oxfmt_config(bufnr)
         local editorconfig = vim.b[bufnr].editorconfig
         if type(editorconfig) ~= "table" then return OXFMT_GLOBAL end
@@ -1726,8 +1784,9 @@ require("lazy").setup({
                 or global_oxfmt_config(ctx.buf)
               return { "-c", config, "--stdin-filepath", "$FILENAME" }
             end,
-            -- Where `oxfmt` would run from the CLI (the config's folder, else the project root): oxfmt reads
-            -- .gitignore, .prettierignore and .editorconfig from its working directory
+            -- Run from where `oxfmt` would run on the CLI (the config's folder, else the project
+            -- root): oxfmt reads .gitignore, .prettierignore, and .editorconfig from its working
+            -- directory.
             cwd = function(_, ctx)
               local _, path, root = find_format_config(ctx.filename)
               return path and vim.fs.dirname(path) or root
@@ -1739,7 +1798,8 @@ require("lazy").setup({
         },
       })
 
-      -- Report every run (format-on-save, :Format, gq) as a bottom-right progress line naming the formatter
+      -- Report every run (format-on-save, `:Format`, `gq`) as a bottom-right progress line that
+      -- names the formatter.
       local conform_format = conform.format
       conform.format = function(opts, callback)
         opts = opts or {}
@@ -1771,16 +1831,16 @@ require("lazy").setup({
         return result
       end
 
-      -- Use conform as the formatexpr for gq formatting
+      -- Use conform for `gq` formatting.
       vim.o.formatexpr = "v:lua.require'conform'.formatexpr()"
 
-      -- Interactive navigation inside :ConformInfo floating window
+      -- Interactive navigation inside the `:ConformInfo` floating window.
       vim.api.nvim_create_autocmd("FileType", {
         pattern = "conform-info",
         desc = "ConformInfo interactive error navigation & quickfix export",
         callback = function(args)
           local buf = args.buf
-          -- Press <CR> on any error line in ConformInfo to jump to the source file & line
+          -- Press `<CR>` on an error line to jump to its source file and line.
           vim.keymap.set("n", "<CR>", function()
             local line = vim.api.nvim_get_current_line()
             local _, parsed = parse_formatter_error(line, nil)
@@ -1798,7 +1858,7 @@ require("lazy").setup({
             end
           end, { buffer = buf, silent = true, desc = "Jump to error under cursor" })
 
-          -- Press 'E' in ConformInfo to load all errors into Quickfix
+          -- Press `E` to load every error into the quickfix list.
           vim.keymap.set("n", "E", function()
             local buf_lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
             local content = table.concat(buf_lines, "\n")
@@ -1825,7 +1885,7 @@ require("lazy").setup({
         end,
       })
 
-      -- User Command: Format current buffer or visual selection
+      -- User command: format the buffer or the visual selection.
       vim.api.nvim_create_user_command("Format", function(args)
         local range = nil
         if args.count ~= -1 then
@@ -1838,7 +1898,7 @@ require("lazy").setup({
         format_buffer(0, { range = range })
       end, { range = true, desc = "Format buffer or selection with Conform error handling" })
 
-      -- User Command: Load recent conform.log errors into Quickfix list
+      -- User command: load recent `conform.log` errors into the quickfix list.
       vim.api.nvim_create_user_command("ConformErrors", function()
         local log = require("conform.log")
         local logfile = log.get_logfile()
@@ -1877,7 +1937,7 @@ require("lazy").setup({
         vim.cmd("copen")
       end, { desc = "Load errors from conform.log into Quickfix list" })
 
-      -- Keymaps for formatting and error inspection
+      -- Keymaps for formatting and error inspection.
       vim.keymap.set({ "n", "v" }, "<leader>cf", function() vim.cmd("Format") end, { noremap = true, silent = true, desc = "Conform: Format Buffer" })
       vim.keymap.set("n", "<leader>ce", "<cmd>ConformErrors<CR>", { noremap = true, silent = true, desc = "Conform: View Formatter Errors (Quickfix)" })
     end,
@@ -1969,7 +2029,7 @@ require("lazy").setup({
   },
 
   -- =========================================================================
-  -- DEBUG ADAPTER PROTOCOL (DAP) & GO DEBUGGING (Delve)
+  -- DEBUGGING: nvim-dap, dap-ui, and delve (Go)
   -- =========================================================================
   {
     "mfussenegger/nvim-dap",
@@ -1988,14 +2048,14 @@ require("lazy").setup({
       local dap_go = require("dap-go")
       local dap_vt = require("nvim-dap-virtual-text")
 
-      -- Setup inline virtual text for variable inspection during debugging
+      -- Show variable values inline as virtual text while debugging.
       dap_vt.setup({
         commented = true,
         highlight_changed_variables = true,
         show_stop_reason = true,
       })
 
-      -- Setup DAP UI with rich debugger layout
+      -- Debugger UI layout.
       dapui.setup({
         icons = { expanded = "▾", collapsed = "▸", current_frame = "▸" },
         mappings = {
@@ -2034,18 +2094,20 @@ require("lazy").setup({
         },
       })
 
-      -- Helper to find the actual delve binary executable (handles Windows vs Unix, GOPATH, ~/go/bin, and system PATH)
+      --- Locate the delve executable (`dlv`), trying ~/go/bin, then GOPATH/bin, then PATH.
+      --- Handles the `.exe` suffix on Windows.
+      ---@return string path Absolute path, or the bare command name if nothing was found
       local function get_delve_path()
         local is_win = vim.fn.has("win32") == 1
         local ext = is_win and ".exe" or ""
 
-        -- 1. Check ~/go/bin
+        -- 1. ~/go/bin.
         local go_bin = vim.fs.joinpath(vim.fn.expand("~/go/bin"), "dlv" .. ext)
         if vim.uv.fs_stat(go_bin) then
           return go_bin
         end
 
-        -- 3. Check GOPATH/bin if set
+        -- 2. $GOPATH/bin, when GOPATH is set.
         if vim.env.GOPATH then
           local gopath_bin = vim.fs.joinpath(vim.env.GOPATH, "bin", "dlv" .. ext)
           if vim.uv.fs_stat(gopath_bin) then
@@ -2053,17 +2115,19 @@ require("lazy").setup({
           end
         end
 
-        -- 4. Check system exepath (if it's an .exe or binary directly)
+        -- 3. A `dlv` on PATH, if it is a real executable rather than a .cmd or .bat shim.
         local sys_path = vim.fn.exepath("dlv" .. ext)
         if sys_path ~= "" and not sys_path:lower():match("%.cmd$") and not sys_path:lower():match("%.bat$") then
           return sys_path
         end
 
-        -- 5. Fallback
+        -- 4. Fall back to the bare command name.
         return is_win and "dlv.exe" or "dlv"
       end
 
-      -- Helper to detect Go project / module root (where go.mod or .git resides)
+      --- Find the Go project root: the nearest directory containing go.mod, go.work, or .git.
+      ---@param bufnr? integer Buffer to start from (defaults to the current buffer)
+      ---@return string root Falls back to the buffer's directory (or cwd) if no marker is found
       local function get_go_project_root(bufnr)
         local buf_name = bufnr and vim.api.nvim_buf_get_name(bufnr) or vim.api.nvim_buf_get_name(0)
         local start_dir = (buf_name ~= "") and vim.fs.dirname(buf_name) or vim.fn.getcwd()
@@ -2071,7 +2135,9 @@ require("lazy").setup({
         return root or start_dir
       end
 
-      -- Sanitize Windows path artifacts like "./C:/..." produced by treesitter test runner
+      --- Sanitize Windows path artifacts such as "./C:/..." produced by the treesitter test runner.
+      ---@param prog string? Program path from a DAP configuration
+      ---@return string? prog
       local function sanitize_go_program_path(prog)
         if not prog or prog == "" or prog == "${file}" or prog == "${fileDirname}" then
           return prog
@@ -2080,7 +2146,7 @@ require("lazy").setup({
         return prog
       end
 
-      -- Setup DAP for Go (delve integration)
+      -- Set up DAP for Go (delve integration).
       dap_go.setup({
         dap_configurations = {
           {
@@ -2100,7 +2166,8 @@ require("lazy").setup({
         },
       })
 
-      -- Directly configure DAP adapter for Go with dynamic root and Delve binary resolution
+      -- Configure the Go adapter directly, resolving the project root and the delve binary at
+      -- launch time.
       dap.adapters.go = function(callback, client_config)
         local dlv_path = get_delve_path()
         local buf_name = vim.api.nvim_buf_get_name(0)
@@ -2131,13 +2198,13 @@ require("lazy").setup({
         })
       end
 
-      -- Open UI automatically when debug session starts
-      -- Kept open after execution terminates so variables & stack traces can be inspected
+      -- Open the UI when a debug session starts. It stays open after execution terminates, so
+      -- variables and stack traces can still be inspected.
       dap.listeners.after.event_initialized["dapui_config"] = function()
         dapui.open()
       end
 
-      -- Custom signs & highlights for breakpoints and execution pointer
+      -- Custom signs for breakpoints and the execution pointer.
       vim.fn.sign_define("DapBreakpoint", { text = "🔴", texthl = "DapBreakpoint", linehl = "", numhl = "" })
       vim.fn.sign_define("DapBreakpointCondition", { text = "🟡", texthl = "DapBreakpointCondition", linehl = "", numhl = "" })
       vim.fn.sign_define("DapBreakpointRejected", { text = "🔘", texthl = "DapBreakpointRejected", linehl = "", numhl = "" })
@@ -2287,10 +2354,10 @@ require("lazy").setup({
     keys = { { "<leader>uc", "<cmd>SmearCursorToggle<CR>", desc = "Toggle Cursor Smear" } },
     opts = {
       cursor_color = "#7aa2f7",
-      time_interval = 4, -- ~240 FPS render interval matching 240Hz display
-      stiffness = 0.2, -- Gentle, fluid movement across frames instead of instant snap
-      trailing_stiffness = 0.12, -- Soft lagging tail for a visible smooth glide
-      damping = 0.65, -- Natural physical momentum
+      time_interval = 4, -- Render interval in ms (~240 FPS), matching a 240Hz display.
+      stiffness = 0.2, -- Gentle, fluid movement instead of an instant snap.
+      trailing_stiffness = 0.12, -- Soft, lagging tail for a visible glide.
+      damping = 0.65, -- Natural momentum.
       trailing_exponent = 3,
       anticipation = 0.1,
       distance_stop_animating = 0.1,
@@ -2314,13 +2381,14 @@ require("lazy").setup({
       input = {
         border = "rounded",
         mappings = {
-          -- Alt+u is this config's Esc; the global smart_escape only drops to Normal mode
+          -- Alt+u acts as Esc in this config. The global smart_escape only drops to Normal mode
           -- (its fed <Esc> is non-remapping), so close the dialog explicitly.
           n = { ["<Esc>"] = "Close", ["<M-u>"] = "Close", ["<M-U>"] = "Close", ["<M-S-u>"] = "Close", ["<CR>"] = "Confirm" },
           i = { ["<Esc>"] = "Close", ["<M-u>"] = "Close", ["<M-U>"] = "Close", ["<M-S-u>"] = "Close", ["<CR>"] = "Confirm", ["<Up>"] = "HistoryPrev", ["<Down>"] = "HistoryNext" },
         }
       },
-      select = { enabled = false }, -- fzf-lua's register_ui_select() handles vim.ui.select
+      -- fzf-lua's register_ui_select() handles vim.ui.select instead.
+      select = { enabled = false },
     },
   },
 
@@ -2427,7 +2495,7 @@ require("lazy").setup({
   },
 
   -- PDF preview: renders pages as images in the buffer via the Kitty graphics protocol.
-  -- j/k scroll pages, h/l pan, +/- zoom, 0 fit width, {n}G jump to page, q close.
+  -- Keys: j/k scroll pages, h/l pan, +/- zoom, 0 fit width, {n}G jump to page, q close.
   {
     "SUZ-tsinghua/pdfpreview.nvim",
     main = "pdfpreview",
@@ -2443,10 +2511,10 @@ require("lazy").setup({
 })
 
 -- =========================================================================
--- 3. LSP CONFIGURATION
+-- 3. LSP SERVERS (native vim.lsp.config / vim.lsp.enable)
 -- =========================================================================
 
--- Completion capabilities are registered by blink.cmp itself (plugin/blink-cmp.lua) when it loads
+-- Completion capabilities are registered by blink.cmp itself (plugin/blink-cmp.lua) when it loads.
 
 -- TypeScript / JavaScript (vtsls)
 vim.lsp.config("vtsls", {
@@ -2501,7 +2569,7 @@ vim.lsp.config("vtsls", {
   },
 })
 
--- Oxlint linting
+-- Oxlint (linting)
 vim.lsp.config("oxlint", {
   cmd = { "oxlint", "--lsp" },
   filetypes = {
@@ -2660,7 +2728,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
     local client = vim.lsp.get_client_by_id(args.data.client_id)
     if not client then return end
     local bufnr = args.buf
-    -- Stop LSP clients from attaching to large buffers (see BinaryGuard)
+    -- Keep LSP clients off large buffers (see BinaryGuard).
     if vim.b[bufnr].large_file then
       vim.schedule(function() vim.lsp.buf_detach_client(bufnr, args.data.client_id) end)
       return
@@ -2690,9 +2758,10 @@ vim.api.nvim_create_autocmd("LspAttach", {
 -- =========================================================================
 -- TOOL PROGRESS (bottom-right, next to LSP progress)
 -- =========================================================================
--- Work that never arrives as LSP $/progress (formatters, diagnostic re-checks, conversions, plugin updates)
--- is drawn by noice's LSP progress view, so it looks like rust-analyzer's "cargo check" lines:
--- "<message> ⠋ <title> <tool>" while running, then "✔ <title> <tool>" (or "✗ ...") for a moment.
+-- Work that never arrives as LSP $/progress (formatters, diagnostic re-checks, conversions, plugin
+-- updates) is drawn through noice's LSP progress view, so it looks like rust-analyzer's "cargo
+-- check" lines: "<message> ⠋ <title> <tool>" while running, then "✔ <title> <tool>" (or "✗ ...")
+-- for a moment.
 local progress_group = vim.api.nvim_create_augroup("ToolProgress", { clear = true })
 local progress_items = {} ---@type table<integer, table>
 local progress_seq = 0
@@ -2704,7 +2773,9 @@ local PROGRESS_FAILED_FORMAT = {
   { "{data.progress.client} ", hl_group = "NoiceLspProgressClient" },
 }
 
--- noice's message modules (the ones its own LSP progress uses); nil until noice has loaded
+--- Return noice's message modules (the ones its own LSP progress uses), or nil until noice has
+--- loaded.
+---@return table?
 local function noice_progress()
   if not package.loaded["noice"] then return nil end
   local ok, api = pcall(function()
@@ -2737,7 +2808,7 @@ local function remove_progress(item)
   if noice and item.msg then noice.Manager.remove(item.msg) end
 end
 
--- Re-render running lines so their spinners animate, as noice does for LSP progress
+--- Re-render running lines so their spinners animate, as noice does for LSP progress.
 local function progress_tick()
   local running = false
   for _, item in pairs(progress_items) do
@@ -2764,19 +2835,20 @@ local function settle_progress(item, state, opts, linger_ms)
   vim.defer_fn(function() remove_progress(item) end, linger_ms)
 end
 
----Show "✔ <title> <tool>" for a moment, then remove the line
+--- Show "✔ <title> <tool>" for a moment, then remove the line.
 ---@param opts? {title?: string, linger?: integer}
 function ProgressHandle:finish(opts)
   settle_progress(self, "done", opts, opts and opts.linger or 1500)
 end
 
----Show "✗ <title> <tool>" a little longer (noice's mini view hides any line 2s after its last update)
+--- Show "✗ <title> <tool>" a little longer, because noice's mini view hides any line 2s after its
+--- last update.
 ---@param opts? {title?: string, linger?: integer}
 function ProgressHandle:fail(opts)
   settle_progress(self, "failed", opts, opts and opts.linger or 2000)
 end
 
----Remove the line without a result (the work was superseded or abandoned)
+--- Remove the line without a result (the work was superseded or abandoned).
 function ProgressHandle:cancel()
   if self.state ~= "running" then return end
   self.state = "cancelled"
@@ -2786,15 +2858,16 @@ end
 local Tool_Progress = {}
 _G.Tool_Progress = Tool_Progress
 
----Start a bottom-right progress line: "<message> ⠋ <title> <tool>"
+--- Start a bottom-right progress line: "<message> ⠋ <title> <tool>".
 ---@param opts {client: string, title: string, message?: string}
----@return table handle with :finish(), :fail() and :cancel()
+---@return table handle Handle with :finish(), :fail(), and :cancel()
 function Tool_Progress.start(opts)
   progress_seq = progress_seq + 1
   local item = setmetatable({ id = progress_seq, state = "running", client = opts.client, title = opts.title, message = opts.message }, ProgressHandle)
   progress_items[item.id] = item
   local noice = render_progress(item)
-  -- Draw it now: callers may block nvim next (sync format-on-save, jupytext) and the line should show meanwhile
+  -- Draw it now: callers may block Neovim next (synchronous format-on-save, jupytext), and the line
+  -- should show meanwhile.
   if noice and not vim.in_fast_event() then pcall(noice.Router.update) end
   if not progress_timer then
     local interval = noice and noice.opts.throttle or 100
@@ -2804,13 +2877,15 @@ function Tool_Progress.start(opts)
   return item
 end
 
--- Diagnostic re-checks. After an edit, servers recompute diagnostics without reporting $/progress (vtsls takes
--- ~0.5s, texlab ~0.3s, basedpyright longer on big files), so track each one: pull servers by their
--- textDocument/diagnostic requests, push servers from didChange until they publish for that file. Only checks
--- still running after CHECK_DELAY_MS show up (clangd, gopls and taplo answer instantly), and none mid-insert.
+-- Diagnostic re-checks. After an edit, servers recompute diagnostics without reporting $/progress
+-- (vtsls takes ~0.5s, texlab ~0.3s, basedpyright longer on big files), so track each one: pull
+-- servers by their textDocument/diagnostic requests, push servers from didChange until they
+-- publish for that file. Only checks still running after CHECK_DELAY_MS show up (clangd, gopls,
+-- and taplo answer instantly), and none appear mid-insert.
 local CHECK_DELAY_MS = 300
 local CHECK_TIMEOUT_MS = 6000
-local CHECK_SKIP = { rust_analyzer = true } -- publishes only after cargo check, which it reports itself
+-- rust-analyzer publishes only after cargo check, which it already reports itself.
+local CHECK_SKIP = { rust_analyzer = true }
 local lsp_checks = {} ---@type table<string, table>
 local lsp_published = {} ---@type table<string, boolean> push server has published for this buffer
 local lsp_answers = {} ---@type table<integer, boolean> push server has answered an edit with a publish
@@ -2840,7 +2915,8 @@ local function show_check(key)
     vim.defer_fn(function() show_check(key) end, wait)
     return
   end
-  if vim.fn.mode():match("^[iR]") then return end -- picked up on InsertLeave
+  -- Skip mid-insert; InsertLeave picks the check up.
+  if vim.fn.mode():match("^[iR]") then return end
   local client = vim.lsp.get_client_by_id(check.client_id)
   if not client or not vim.api.nvim_buf_is_valid(check.buf) then return end
   check.handle = Tool_Progress.start({
@@ -2884,7 +2960,8 @@ vim.api.nvim_create_autocmd("LspRequest", {
     if not check then return end
     check.pulls[ev.data.request_id] = nil
     check.completed = check.completed or req.type == "complete"
-    -- A cancelled pull is re-sent right away; finish only once nothing is pending after this tick
+    -- A cancelled pull is re-sent right away, so finish only once nothing is pending after this
+    -- tick.
     vim.schedule(function()
       if lsp_checks[key] == check and next(check.pulls) == nil then end_check(key, check.completed) end
     end)
@@ -2897,7 +2974,8 @@ vim.api.nvim_create_autocmd("LspNotify", {
     if ev.data.method ~= "textDocument/didChange" then return end
     local client = vim.lsp.get_client_by_id(ev.data.client_id)
     if not client or CHECK_SKIP[client.name] or lsp_unanswered[client.id] then return end
-    if client:supports_method("textDocument/diagnostic") then return end -- pull server, tracked above
+    -- Pull servers are tracked above.
+    if client:supports_method("textDocument/diagnostic") then return end
     local uri = vim.tbl_get(ev.data, "params", "textDocument", "uri")
     if not uri then return end
     local buf = vim.uri_to_bufnr(uri)
@@ -2932,7 +3010,8 @@ vim.api.nvim_create_autocmd("LspDetach", {
   end,
 })
 
--- lazy.nvim runs, including the daily background update check that is otherwise silent (checker.notify = false)
+-- Track lazy.nvim runs, including the daily background update check that is otherwise silent
+-- (`checker.notify = false`).
 local lazy_runs = {}
 local lazy_titles = {
   Check = { "Checking for plugin updates" },
@@ -2992,8 +3071,8 @@ vim.opt.keymodel = "startsel,stopsel"
 vim.opt.selectmode = "key,mouse"
 vim.opt.ignorecase = true
 vim.opt.smartcase = true
-vim.opt.updatetime = 300   -- Fast CursorHold trigger for diagnostic popups
-vim.opt.undofile = true    -- Persist undo history across sessions
+vim.opt.updatetime = 300 -- Faster CursorHold, for diagnostic popups.
+vim.opt.undofile = true -- Persist undo history across sessions.
 vim.opt.undolevels = 10000
 vim.opt.scrolloff = 8
 vim.opt.sidescrolloff = 8
@@ -3004,11 +3083,13 @@ vim.opt.inccommand = "split"
 vim.opt.mouse = "a"
 vim.opt.fillchars:append({ eob = " " })
 vim.opt.list = true
-vim.opt.listchars = { tab = "  ", trail = "·", nbsp = "␣" } -- Tabs render as plain space (tab-indented code would show a marker per level)
+-- Render tabs as plain space: tab-indented code would otherwise show a marker per level.
+vim.opt.listchars = { tab = "  ", trail = "·", nbsp = "␣" }
 vim.opt.autoread = true
-vim.opt.sessionoptions = { "buffers", "curdir", "folds", "help", "tabpages", "winsize", "winpos", "terminal" } -- Exclude 'blank' to avoid saving empty/untitled placeholder windows
+-- 'blank' is excluded so empty or untitled placeholder windows are not saved.
+vim.opt.sessionoptions = { "buffers", "curdir", "folds", "help", "tabpages", "winsize", "winpos", "terminal" }
 
--- Python Indentation (PEP 8: 4-space indent, 4 additional spaces for continuation lines)
+-- Python indentation (PEP 8: 4-space indent, 4 more spaces for continuation lines)
 vim.g.python_indent = {
   open_paren = "shiftwidth()",
   nested_paren = "shiftwidth()",
@@ -3049,7 +3130,7 @@ vim.api.nvim_create_autocmd("TextYankPost", {
   callback = function() vim.hl.on_yank({ timeout = 150 }) end,
 })
 
--- Buffers where idle/focus autocmds (diagnostic float, checktime) must not run
+-- Buffers where idle and focus autocmds (diagnostic float, checktime) must not run.
 local ignored_ft = {
   [""] = true, NvimTree = true, aerial = true, toggleterm = true,
   trouble = true, alpha = true, lazy = true, mason = true,
@@ -3059,7 +3140,7 @@ local function is_ignored_buffer()
   return vim.bo.buftype ~= "" or ignored_ft[ft] or ft:find("^dap") ~= nil
 end
 
--- Show the diagnostic float when the cursor rests on a line that has diagnostics
+-- Show the diagnostic float when the cursor rests on a line that has diagnostics.
 vim.api.nvim_create_autocmd("CursorHold", {
   group = vim.api.nvim_create_augroup("DiagnosticFloatOnHold", { clear = true }),
   pattern = "*",
@@ -3078,7 +3159,7 @@ vim.api.nvim_create_autocmd("CursorHold", {
   end,
 })
 
--- Keep NvimTree and Aerial at consistent widths across splits and resizes
+-- Keep NvimTree and Aerial at consistent widths across splits and resizes.
 local function fix_sidebar_widths()
   local tree_win = nil
   local aerial_win = nil
@@ -3117,8 +3198,8 @@ vim.api.nvim_create_autocmd({ "VimResized" }, {
   end,
 })
 
--- Layout guard: when the last normal buffer closes, keep the sidebars from taking over
--- the layout or being corrupted (NvimTree in particular)
+-- Layout guard: when the last normal buffer closes, keep the sidebars from taking over the layout
+-- or being corrupted (NvimTree in particular).
 local layout_guard_group = vim.api.nvim_create_augroup("SafeBufferLayoutGuard", { clear = true })
 vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
   group = layout_guard_group,
@@ -3145,13 +3226,13 @@ vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
         end
       end
 
-      -- If all normal windows were destroyed, collapse Aerial immediately
+      -- If all normal windows were destroyed, collapse Aerial immediately.
       if not has_normal_win and aerial_win and vim.api.nvim_win_is_valid(aerial_win) then
         pcall(function() require("aerial").close() end)
       end
 
-      -- If NvimTree is left with no normal window beside it, recreate the code window
-      -- so opening files never splits or crushes NvimTree
+      -- If NvimTree is left with no normal window beside it, recreate the code window, so opening
+      -- files never splits or crushes NvimTree.
       if not has_normal_win and tree_win and vim.api.nvim_win_is_valid(tree_win) then
         vim.api.nvim_win_call(tree_win, function()
           vim.cmd("rightbelow vsplit")
@@ -3174,7 +3255,7 @@ vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
 local deleted_buffers_notified = {}
 local external_file_group = vim.api.nvim_create_augroup("ExternalFileWatch", { clear = true })
 
--- Handle files modified or deleted on disk while they are open
+-- Handle files modified or deleted on disk while they are open.
 vim.api.nvim_create_autocmd("FileChangedShell", {
   group = external_file_group,
   pattern = "*",
@@ -3218,7 +3299,7 @@ vim.api.nvim_create_autocmd("FileChangedShell", {
   end,
 })
 
--- Reset the notified state when the file is written or the buffer is removed
+-- Reset the notified state when the file is written or the buffer is removed.
 vim.api.nvim_create_autocmd({ "BufWritePost", "BufWipeout", "BufDelete" }, {
   group = external_file_group,
   pattern = "*",
@@ -3227,7 +3308,7 @@ vim.api.nvim_create_autocmd({ "BufWritePost", "BufWipeout", "BufDelete" }, {
   end,
 })
 
--- Run checktime on focus, buffer switch, and idle so external changes are noticed promptly
+-- Run checktime on focus, buffer switch, and idle, so external changes are noticed promptly.
 vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold" }, {
   group = external_file_group,
   pattern = "*",
@@ -3265,7 +3346,8 @@ local function get_jupytext_cmd(sub_args)
   return cmd
 end
 
--- Synchronous runner with stdout/stderr kept separate (stderr warnings must not leak into buffer content)
+--- Run a command synchronously, keeping stdout and stderr separate, so stderr warnings never leak
+--- into buffer content.
 local function run_sync(cmd, stdin)
   local ok, res = pcall(function() return vim.system(cmd, { text = true, stdin = stdin }):wait() end)
   if not ok then return 1, "", tostring(res) end
@@ -3391,14 +3473,14 @@ vim.api.nvim_create_autocmd({ "BufWriteCmd" }, {
 -- 5. COMMANDS AND KEYMAPS
 -- =========================================================================
 
--- :ClearProjects: wipe the legacy project.nvim history file (if one remains)
+-- :ClearProjects: wipe the legacy project.nvim history file, if one remains.
 vim.api.nvim_create_user_command("ClearProjects", function()
   local history_file = vim.fn.stdpath("data") .. "/project_nvim/project_history"
   os.remove(history_file)
   print("Project history cleared. (Restart Neovim to reflect changes)")
 end, { desc = "Wipe the recent projects list" })
 
--- :AsyncDelete [path]: delete a file or folder in the background
+-- :AsyncDelete [path]: delete a file or folder in the background.
 vim.api.nvim_create_user_command("AsyncDelete", function(opts)
   local path = (opts.args ~= "") and vim.fn.expand(opts.args) or vim.api.nvim_buf_get_name(0)
   if not path or path == "" then
@@ -3420,7 +3502,7 @@ vim.api.nvim_create_user_command("AsyncDelete", function(opts)
   end)
 end, { nargs = "?", complete = "file", desc = "Delete file or directory asynchronously in background" })
 
--- :CleanDeletedBuffers: close unmodified buffers whose file no longer exists on disk
+-- :CleanDeletedBuffers: close unmodified buffers whose file no longer exists on disk.
 vim.api.nvim_create_user_command("CleanDeletedBuffers", function()
   local closed = 0
   for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
@@ -3444,13 +3526,13 @@ vim.api.nvim_create_user_command("CleanDeletedBuffers", function()
   end
 end, { desc = "Close all unmodified buffers whose underlying file was deleted from disk" })
 
--- Search
+-- Search is literal by default: `/` and `?` are prefixed with `\V` (very nomagic).
 vim.keymap.set('n', '/', '/\\V', { noremap = true, desc = "Literal Search Forward" })
 vim.keymap.set('v', '/', '/\\V', { noremap = true, desc = "Literal Search Forward" })
 vim.keymap.set('n', '?', '?\\V', { noremap = true, desc = "Literal Search Backward" })
 vim.keymap.set('v', '?', '?\\V', { noremap = true, desc = "Literal Search Backward" })
 
--- fzf-lua File Finders & Grep
+-- fzf-lua file finders and grep
 vim.keymap.set('n', '<C-f>', function() require('fzf-lua').blines() end, { noremap = true, silent = true, desc = "Fuzzy Find in File (fzf-lua)" })
 vim.keymap.set('n', '<leader>f', function() if _G.Ensure_Code_Window then _G.Ensure_Code_Window() end; require('fzf-lua').files() end, { noremap = true, silent = true, desc = "Find Files (fzf-lua)" })
 vim.keymap.set('n', '<leader>F', function() if _G.Ensure_Code_Window then _G.Ensure_Code_Window() end; require('fzf-lua').live_grep() end, { noremap = true, silent = true, desc = "Find Text (fzf-lua)" })
@@ -3487,7 +3569,8 @@ vim.keymap.set('n', '<leader>dt', function()
   if file_dir ~= root and file_dir:sub(1, #root) == root then
     rel_dir = "./" .. file_dir:sub(#root + 2):gsub("\\", "/")
   end
-  require("dap") -- loads nvim-dap's config, which sets up dap-go
+  -- Loading nvim-dap runs its config, which sets up dap-go.
+  require("dap")
   local dap_go = require("dap-go")
   local ok = dap_go.debug_test({
     program = rel_dir,
@@ -3520,9 +3603,9 @@ vim.keymap.set({ 'n', 'v' }, '<leader>de', function() require('dap'); require('d
 vim.keymap.set('n', '<leader>p', function() _G.Search_Sessions() end, { noremap = true, silent = true, desc = "Active Projects (Restore Tabs)" })
 vim.keymap.set('n', '<leader>fp', function() _G.Open_Project_In_Tree() end, { noremap = true, silent = true, desc = "Find Recent Project Folders" })
 
--- Aerial code outline sidebar
+-- Toggle the Aerial code outline sidebar.
 vim.keymap.set("n", "<leader>a", function()
-  -- If we're in a sidebar, switch to the code window first
+  -- From a sidebar, switch to the code window first.
   local ft = vim.bo.filetype
   if ft == "NvimTree" or ft == "aerial" or ft == "toggleterm" or ft == "trouble" then
     for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -3545,10 +3628,10 @@ vim.keymap.set("n", "<leader>a", function()
   end
 end, { noremap = true, silent = true, desc = "Toggle Code Structure Sidebar" })
 
--- File explorer sidebar (nvim-tree)
+-- Toggle the file explorer sidebar (nvim-tree).
 vim.keymap.set("n", "<leader>e", function()
-  -- No active project (file opened from the dashboard's Recent/Find): adopt the file's project first,
-  -- so the tree roots there instead of wherever it was left.
+  -- With no active project (a file opened from the dashboard's Recent or Find), adopt the file's
+  -- project first, so the tree roots there instead of wherever it was left.
   local file = vim.api.nvim_buf_get_name(0)
   if not _G._project_root and vim.bo.buftype == "" and vim.fn.filereadable(file) == 1 and _G.Open_Project_Directory then
     _G.Open_Project_Directory(vim.fs.root(file, ".git") or vim.fs.dirname(file))
@@ -3563,15 +3646,16 @@ end, { noremap = true, silent = true, desc = "Toggle File Explorer" })
 -- =========================================================================
 vim.keymap.set('n', '<leader>h', function()
   if vim.bo.filetype == "alpha" then return end
-  _G.Close_Project() -- Save session under the project's own root, then close everything
-  vim.cmd("Alpha") -- Open Dashboard
+  -- Save the session under the project's own root and close everything, then open the dashboard.
+  _G.Close_Project()
+  vim.cmd("Alpha")
 end, { noremap = true, silent = true, desc = "Save & Return to Dashboard" })
 
--- Cycle focus between NvimTree, the code window, and Aerial (forward and reverse)
+-- Cycle focus between NvimTree, the code window, and Aerial (forward or reverse).
 local function cycle_panel_focus(reverse)
   local current_ft = vim.bo.filetype
 
-  -- Helper: find the first normal (non-sidebar) code window
+  -- Find the first normal (non-sidebar) code window.
   local function find_code_win()
     for _, win in ipairs(vim.api.nvim_list_wins()) do
       local buf = vim.api.nvim_win_get_buf(win)
@@ -3584,7 +3668,7 @@ local function cycle_panel_focus(reverse)
     return nil
   end
 
-  -- Helper: find the aerial window (if open)
+  -- Find the Aerial window, if it is open.
   local function find_aerial_win()
     for _, win in ipairs(vim.api.nvim_list_wins()) do
       local buf = vim.api.nvim_win_get_buf(win)
@@ -3601,7 +3685,7 @@ local function cycle_panel_focus(reverse)
   local code_win = find_code_win()
 
   if reverse then
-    -- Reverse direction: NvimTree -> Aerial -> Code -> NvimTree
+    -- Reverse: NvimTree -> Aerial -> Code -> NvimTree.
     if current_ft == "NvimTree" then
       if aerial_win then
         vim.api.nvim_set_current_win(aerial_win)
@@ -3618,7 +3702,7 @@ local function cycle_panel_focus(reverse)
       vim.cmd("NvimTreeFocus")
     end
   else
-    -- Forward direction: NvimTree -> Code -> Aerial -> NvimTree
+    -- Forward: NvimTree -> Code -> Aerial -> NvimTree.
     if current_ft == "NvimTree" then
       if code_win then
         vim.api.nvim_set_current_win(code_win)
@@ -3641,18 +3725,22 @@ vim.keymap.set({'n', 'i', 'v'}, '<C-M-e>', function() cycle_panel_focus(false) e
 vim.keymap.set({'n', 'i', 'v'}, '<C-M-S-e>', function() cycle_panel_focus(true) end, { noremap = true, silent = true, desc = "Cycle Focus Reverse: File -> Tree -> Structure" })
 vim.keymap.set({'n', 'i', 'v'}, '<C-A-S-e>', function() cycle_panel_focus(true) end, { noremap = true, silent = true, desc = "Cycle Focus Reverse: File -> Tree -> Structure" })
 
--- Alt+e / Alt+Shift+e: fallbacks for terminals that don't pass Ctrl+Alt+Shift
+-- Alt+e / Alt+Shift+e: fallbacks for terminals that do not pass Ctrl+Alt+Shift.
 vim.keymap.set({'n', 'i', 'v'}, '<M-e>', function() cycle_panel_focus(false) end, { noremap = true, silent = true, desc = "Cycle Focus Forward: File -> Structure -> Tree" })
 vim.keymap.set({'n', 'i', 'v'}, '<M-S-e>', function() cycle_panel_focus(true) end, { noremap = true, silent = true, desc = "Cycle Focus Reverse: File -> Tree -> Structure" })
 
--- Split panes: code windows, as opposed to sidebars, terminals, and floats
+--- Check whether a window is a code pane (not a sidebar, terminal, or float).
+---@param win integer
+---@return boolean
 local function is_code_win(win)
   if vim.api.nvim_win_get_config(win).relative ~= "" then return false end
   local ft = vim.bo[vim.api.nvim_win_get_buf(win)].filetype
   return ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "alpha"
 end
 
--- Is the buffer showing in some other pane of the current tab?
+--- Find another pane in the current tab that shows the buffer.
+---@param bufnr integer
+---@return integer? win
 local function shown_in_other_pane(bufnr)
   local cur = vim.api.nvim_get_current_win()
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
@@ -3660,7 +3748,8 @@ local function shown_in_other_pane(bufnr)
   end
 end
 
--- Show a buffer: jump to the pane already showing it, otherwise open it in the focused code pane
+--- Show a buffer: jump to the pane already showing it, otherwise open it in the focused code pane.
+---@param bufnr integer
 function _G.Show_Buffer(bufnr)
   local win = shown_in_other_pane(bufnr)
   if win then return vim.api.nvim_set_current_win(win) end
@@ -3668,8 +3757,9 @@ function _G.Show_Buffer(bufnr)
   vim.api.nvim_set_current_buf(bufnr)
 end
 
--- Buffer Navigation: cycle files in the focused pane in tab-bar order, skipping files already shown in
--- another split (so both panes never end up showing the same file)
+--- Cycle files in the focused pane in tab-bar order, skipping files already shown in another split,
+--- so two panes never end up showing the same file.
+---@param step integer 1 for the next file, -1 for the previous
 local function cycle_buffers(step)
   local cur = vim.api.nvim_get_current_buf()
   local function index_of(list)
@@ -3681,7 +3771,8 @@ local function cycle_buffers(step)
   local ok, bufferline = pcall(require, "bufferline")
   local order = ok and vim.tbl_map(function(e) return e.id end, bufferline.get_elements().elements) or {}
   local idx = index_of(order)
-  if not idx then -- Tab bar not drawn yet or current buffer not in it: fall back to buffer-number order
+  -- If the tab bar is not drawn yet or lacks the current buffer, fall back to buffer-number order.
+  if not idx then
     order = vim.tbl_map(function(b) return b.bufnr end, vim.fn.getbufinfo({ buflisted = 1 }))
     idx = index_of(order)
   end
@@ -3702,14 +3793,14 @@ end
 vim.keymap.set('n', '<Tab>', function() cycle_buffers(1) end, { noremap = true, silent = true, desc = "Next File Tab" })
 vim.keymap.set('n', '<S-Tab>', function() cycle_buffers(-1) end, { noremap = true, silent = true, desc = "Previous File Tab" })
 
--- Window Split Navigation (Ctrl+h/j/k/l moves between panes and sidebars)
+-- Window navigation (Ctrl+h/j/k/l moves between panes and sidebars).
 vim.keymap.set('n', '<C-h>', '<C-w>h', { noremap = true, silent = true, desc = "Focus Pane Left" })
 vim.keymap.set('n', '<C-j>', '<C-w>j', { noremap = true, silent = true, desc = "Focus Pane Below" })
 vim.keymap.set('n', '<C-k>', '<C-w>k', { noremap = true, silent = true, desc = "Focus Pane Above" })
 vim.keymap.set('n', '<C-l>', '<C-w>l', { noremap = true, silent = true, desc = "Focus Pane Right" })
 
--- Only the focused code pane shows the cursorline, so it's obvious which split has focus
--- (sidebars keep theirs: it marks the selected node/symbol)
+-- Only the focused code pane shows the cursorline, so it is obvious which split has focus
+-- (sidebars keep theirs: it marks the selected node or symbol).
 local function set_pane_cursorline(on)
   return function()
     if vim.bo.buftype ~= "" or not is_code_win(0) then return end
@@ -3720,7 +3811,7 @@ local pane_focus_group = vim.api.nvim_create_augroup("PaneFocusCursorline", { cl
 vim.api.nvim_create_autocmd({ "WinEnter", "BufWinEnter" }, { group = pane_focus_group, callback = set_pane_cursorline(true) })
 vim.api.nvim_create_autocmd("WinLeave", { group = pane_focus_group, callback = set_pane_cursorline(false) })
 
--- Smart Close
+-- Smart close
 local function get_normal_window_count()
   local count = 0
   for _, win in ipairs(vim.api.nvim_list_wins()) do
@@ -3736,8 +3827,10 @@ local function get_normal_window_count()
   return count
 end
 
--- Close a file like an editor tab: ask about unsaved changes, close the split panes showing it
--- (never the last code pane, which switches to another file instead), then drop it from the tab bar
+--- Close a file like an editor tab: ask about unsaved changes, close the split panes showing it
+--- (never the last code pane, which switches to another file instead), then drop it from the tab
+--- bar.
+---@param bufnr? integer Buffer to close (defaults to the current buffer)
 function _G.Close_File(bufnr)
   bufnr = (bufnr and bufnr ~= 0) and bufnr or vim.api.nvim_get_current_buf()
   if not vim.api.nvim_buf_is_valid(bufnr) then return end
@@ -3747,7 +3840,8 @@ function _G.Close_File(bufnr)
     local choice = vim.fn.confirm(("Save changes to '%s'?"):format(name ~= "" and name or "[No Name]"), "&Save\n&Discard\n&Cancel", 1, "Question")
     if choice == 1 then
       pcall(vim.api.nvim_buf_call, bufnr, function() vim.cmd("write") end)
-      if vim.bo[bufnr].modified then return end -- Write failed (e.g. no file name): keep the file open
+      -- The write failed (e.g. no file name): keep the file open.
+      if vim.bo[bufnr].modified then return end
     elseif choice ~= 2 then
       return
     end
@@ -3769,7 +3863,7 @@ end
 
 vim.keymap.set('n', '<leader>w', function()
   if vim.bo.filetype == "NvimTree" or vim.bo.filetype == "aerial" or vim.bo.filetype == "alpha" then return end
-  -- Help, quickfix, and other special windows: just close the pane
+  -- Help, quickfix, and other special windows: just close the pane.
   if vim.bo.buftype ~= "" and get_normal_window_count() > 1 then
     vim.cmd("close")
     return
@@ -3777,7 +3871,7 @@ vim.keymap.set('n', '<leader>w', function()
   _G.Close_File(0)
 end, { noremap = true, silent = true, desc = "Close File (and its Split)" })
 
--- General Core Bindings
+-- General core bindings
 vim.keymap.set('n', '<leader>q', function()
   local is_dashboard = vim.bo.filetype == "alpha"
   if not is_dashboard then
@@ -3799,7 +3893,7 @@ vim.keymap.set('n', '<leader>q', function()
   end
 end, { noremap = true, silent = true, desc = "Quit NVIM (Dashboard Only)" })
 vim.keymap.set({ 'n', 'i', 'v' }, '<C-s>', '<cmd>w<CR>', { noremap = true, silent = true })
--- Undo / redo (Ctrl+z is not used to suspend Neovim)
+-- Undo and redo. Ctrl+z undoes instead of suspending Neovim.
 vim.keymap.set('n', '<C-z>', 'u', { noremap = true, silent = true, desc = "Undo" })
 vim.keymap.set('i', '<C-z>', '<C-g>u<C-o>u', { noremap = true, silent = true, desc = "Undo (Insert)" })
 vim.keymap.set({ 'v', 'x', 's' }, '<C-z>', '<Esc>u', { noremap = true, silent = true, desc = "Undo" })
@@ -3808,7 +3902,7 @@ vim.keymap.set({ 'c', 't' }, '<C-z>', '<Nop>', { noremap = true, silent = true, 
 vim.keymap.set('n', '<C-y>', '<C-r>', { noremap = true, silent = true, desc = "Redo" })
 vim.keymap.set('i', '<C-y>', '<C-o><C-r>', { noremap = true, silent = true, desc = "Redo (Insert)" })
 vim.keymap.set({ 'v', 'x', 's' }, '<C-y>', '<Esc><C-r>', { noremap = true, silent = true, desc = "Redo" })
--- Smart escape: stops any active snippet, clears search highlights, and returns to Normal mode
+--- Smart escape: stop any active snippet, clear search highlights, and return to Normal mode.
 local function smart_escape()
   if vim.snippet and vim.snippet.active() then
     pcall(vim.snippet.stop)
@@ -3821,7 +3915,7 @@ local function smart_escape()
   end
 end
 
--- Stop snippet sessions on leaving Insert/Select mode so placeholders can't trap the cursor
+-- Stop snippet sessions on leaving Insert or Select mode, so placeholders cannot trap the cursor.
 vim.api.nvim_create_autocmd("ModeChanged", {
   group = vim.api.nvim_create_augroup("SnippetAutoStop", { clear = true }),
   pattern = { "i:n", "s:n", "i:v", "s:v" },
@@ -3835,36 +3929,38 @@ vim.api.nvim_create_autocmd("ModeChanged", {
 vim.keymap.set('n', '<Esc>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
 vim.keymap.set('c', '<M-j>', smart_escape, { noremap = true, silent = true, desc = "Escape (Cmdline)" })
 
--- Alt+u: escape
+-- Alt+u acts as Escape.
 vim.keymap.set({ 'i', 'n', 'v', 'x', 's', 'c' }, '<M-u>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
 vim.keymap.set({ 'i', 'n', 'v', 'x', 's', 'c' }, '<M-U>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
 vim.keymap.set({ 'i', 'n', 'v', 'x', 's', 'c' }, '<M-S-u>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
 
--- Alt+b: backspace
+-- Alt+b acts as Backspace.
 vim.keymap.set({ 'i', 'c' }, '<M-b>', '<BS>', { noremap = true, silent = true, desc = "Backspace" })
 
--- Alt+Backspace: plain backspace (avoid it being read as Esc+BS and escaping to Normal mode)
+-- Alt+Backspace is a plain Backspace. Terminals send it as Esc+BS, which would otherwise escape to
+-- Normal mode.
 vim.keymap.set({ 'i', 'c' }, '<M-BS>', '<BS>', { noremap = true, silent = true, desc = "Backspace" })
 
--- Alt+o: run one Normal-mode command from Insert mode
+-- Alt+o: run one Normal-mode command from Insert mode.
 vim.keymap.set('i', '<M-o>', '<C-o>', { noremap = true, silent = true, desc = "Execute single Normal command from Insert" })
 vim.keymap.set('i', '<M-O>', '<C-o>', { noremap = true, silent = true, desc = "Execute single Normal command from Insert" })
 vim.keymap.set('i', '<M-S-o>', '<C-o>', { noremap = true, silent = true, desc = "Execute single Normal command from Insert" })
 
--- Alt+h/j/k/l: directional movement
--- Insert mode: character/line stepping
+-- Alt+h/j/k/l: directional movement.
+-- Insert mode: step by character or line.
 vim.keymap.set('i', '<M-h>', '<Left>',  { noremap = true, silent = true, desc = "Move Left (Insert)" })
 vim.keymap.set('i', '<M-j>', '<Down>',  { noremap = true, silent = true, desc = "Move Down (Insert)" })
 vim.keymap.set('i', '<M-k>', '<Up>',    { noremap = true, silent = true, desc = "Move Up (Insert)" })
 vim.keymap.set('i', '<M-l>', '<Right>', { noremap = true, silent = true, desc = "Move Right (Insert)" })
 
--- Normal mode: directional movement
+-- Normal mode: directional movement.
 vim.keymap.set('n', '<M-h>', 'h', { noremap = true, silent = true, desc = "Move Left (Normal)" })
 vim.keymap.set('n', '<M-j>', 'j', { noremap = true, silent = true, desc = "Move Down (Normal)" })
 vim.keymap.set('n', '<M-k>', 'k', { noremap = true, silent = true, desc = "Move Up (Normal)" })
 vim.keymap.set('n', '<M-l>', 'l', { noremap = true, silent = true, desc = "Move Right (Normal)" })
 
--- Visual / Select mode: cancel the selection and move, returning to Insert if it began there
+--- Cancel the selection and move, returning to Insert mode if the selection began there.
+---@param dir string Direction key to move with (e.g. "l")
 local function cancel_visual_and_move(dir)
   local from_insert = _G._selection_from_insert
   _G._selection_from_insert = false
@@ -3898,14 +3994,14 @@ for _, key in ipairs({ 'h', 'j', 'k', 'l' }) do
   end, { noremap = true, silent = true, desc = "Cancel Selection & Move " .. dir_names[key] })
 end
 
--- Alt+Shift+h / Alt+Shift+l: jump to line start (first non-blank, then column 0) or line end
+-- Alt+Shift+h / Alt+Shift+l: jump to line start (first non-blank, then column 0) or line end.
 local function jump_to_line_start_insert()
   local col = vim.api.nvim_win_get_cursor(0)[2]
   local row = vim.api.nvim_win_get_cursor(0)[1]
   local line = vim.api.nvim_get_current_line()
   local first_non_blank = line:find("%S")
   local target_col = first_non_blank and (first_non_blank - 1) or 0
-  -- Already at or before the first non-blank character: go to column 0 instead
+  -- Already at or before the first non-blank character: go to column 0 instead.
   if col == target_col then
     vim.api.nvim_win_set_cursor(0, { row, 0 })
   else
@@ -3919,35 +4015,35 @@ local function jump_to_line_end_insert()
   vim.api.nvim_win_set_cursor(0, { row, #line })
 end
 
--- Insert mode jumps (stays in insert mode)
+-- Insert mode jumps (stay in Insert mode).
 vim.keymap.set('i', '<M-S-h>', jump_to_line_start_insert, { noremap = true, silent = true, desc = "Go to First Character / Line Start (Insert)" })
 vim.keymap.set('i', '<M-H>',   jump_to_line_start_insert, { noremap = true, silent = true, desc = "Go to First Character / Line Start (Insert)" })
 vim.keymap.set('i', '<M-S-l>', jump_to_line_end_insert,   { noremap = true, silent = true, desc = "Go to Line End (Insert)" })
 vim.keymap.set('i', '<M-L>',   jump_to_line_end_insert,   { noremap = true, silent = true, desc = "Go to Line End (Insert)" })
 
--- Normal mode jumps
+-- Normal mode jumps.
 vim.keymap.set('n', '<M-S-h>', '^', { noremap = true, silent = true, desc = "Go to First Non-Blank Character" })
 vim.keymap.set('n', '<M-H>',   '^', { noremap = true, silent = true, desc = "Go to First Non-Blank Character" })
 vim.keymap.set('n', '<M-S-l>', '$', { noremap = true, silent = true, desc = "Go to Line End" })
 vim.keymap.set('n', '<M-L>',   '$', { noremap = true, silent = true, desc = "Go to Line End" })
 
--- Visual / Selection mode jumps
+-- Visual / Select mode jumps.
 vim.keymap.set({ 'v', 'x' }, '<M-S-h>', '^', { noremap = true, silent = true, desc = "Extend Selection to First Non-Blank Character" })
 vim.keymap.set({ 'v', 'x' }, '<M-H>',   '^', { noremap = true, silent = true, desc = "Extend Selection to First Non-Blank Character" })
 vim.keymap.set({ 'v', 'x' }, '<M-S-l>', '$', { noremap = true, silent = true, desc = "Extend Selection to Line End" })
 vim.keymap.set({ 'v', 'x' }, '<M-L>',   '$', { noremap = true, silent = true, desc = "Extend Selection to Line End" })
 
--- Ctrl+h / Ctrl+l fallback in Insert mode
+-- Ctrl+h / Ctrl+l: Home / End fallbacks in Insert mode.
 vim.keymap.set('i', '<C-h>', '<Home>', { noremap = true, silent = true, desc = "Go to Line Start (Insert)" })
 vim.keymap.set('i', '<C-l>', '<End>',  { noremap = true, silent = true, desc = "Go to Line End (Insert)" })
 
--- Word navigation (Alt+w / Alt+Shift+w)
--- Forward word (Alt + w)
+-- Word navigation (Alt+w / Alt+Shift+w).
+-- Forward word: Alt+w.
 vim.keymap.set('i', '<M-w>', '<C-o>w', { noremap = true, silent = true, desc = "Move Forward Word (Insert)" })
 vim.keymap.set({ 'n', 'v', 'x' }, '<M-w>', 'w', { noremap = true, silent = true, desc = "Move Forward Word" })
 vim.keymap.set('c', '<M-w>', '<S-Right>', { noremap = true, silent = true, desc = "Move Forward Word (Cmdline)" })
 
--- Backward word (Alt + Shift + w / Alt + W)
+-- Backward word: Alt+Shift+w (or Alt+W).
 vim.keymap.set('i', '<M-S-w>', '<C-o>b', { noremap = true, silent = true, desc = "Move Backward Word (Insert)" })
 vim.keymap.set('i', '<M-W>',   '<C-o>b', { noremap = true, silent = true, desc = "Move Backward Word (Insert)" })
 vim.keymap.set({ 'n', 'v', 'x' }, '<M-S-w>', 'b', { noremap = true, silent = true, desc = "Move Backward Word" })
@@ -3955,7 +4051,7 @@ vim.keymap.set({ 'n', 'v', 'x' }, '<M-W>',   'b', { noremap = true, silent = tru
 vim.keymap.set('c', '<M-S-w>', '<S-Left>', { noremap = true, silent = true, desc = "Move Backward Word (Cmdline)" })
 vim.keymap.set('c', '<M-W>',   '<S-Left>', { noremap = true, silent = true, desc = "Move Backward Word (Cmdline)" })
 
--- Open the current file in the OS default viewer
+-- Open the current file in the OS default viewer.
 vim.keymap.set('n', '<leader>o', function()
   local path = ""
   if vim.bo.filetype == "NvimTree" then
@@ -3972,22 +4068,26 @@ vim.keymap.set('n', '<leader>o', function()
   elseif vim.fn.has('win32') == 1 then vim.fn.jobstart({ 'cmd', '/c', 'start', '""', path }, { detach = true }) end
 end, { noremap = true, silent = true, desc = "Open in OS Explorer" })
 
--- Binary file handling: known binary extensions, plus unknown binaries detected by a NUL-byte sniff
+-- Binary file handling (BinaryGuard): known binary extensions, plus unknown binaries detected by a
+-- NUL-byte sniff.
+
+--- Open a path with the OS default viewer.
+---@param path string
 local function open_external(path)
   if vim.fn.has('mac') == 1 then vim.fn.jobstart({ 'open', path }, { detach = true })
   elseif vim.fn.has('unix') == 1 then vim.fn.jobstart({ 'xdg-open', path }, { detach = true })
   elseif vim.fn.has('win32') == 1 then vim.fn.jobstart({ 'cmd', '/c', 'start', '""', path }, { detach = true }) end
 end
 
--- Binary formats an OS viewer can open
+-- Binary formats an OS viewer can open.
 local external_exts = {
   "mp4", "mkv", "avi", "mov", "webm", "mp3", "flac", "wav",
   "zip", "tar", "gz", "bz2", "xz", "zst", "7z", "rar", "iso", "whl",
   "xlsx", "pptx",
 }
--- Tabular/data binaries: show a text preview instead
+-- Tabular and data binaries: show a text preview instead.
 local data_exts = { "parquet", "feather", "arrow", "orc", "avro", "npy", "npz", "pkl", "pickle", "h5", "hdf5", "sqlite", "db" }
--- Opaque binaries: refuse to load
+-- Opaque binaries: refuse to load.
 local opaque_exts = { "pt", "pth", "onnx", "safetensors", "so", "o", "a", "exe", "dll", "bin", "class", "pyc" }
 
 local function ext_set(list) local s = {} for _, e in ipairs(list) do s[e] = true end return s end
@@ -4001,7 +4101,9 @@ local function is_binary_content(path)
   return chunk:find("\0", 1, true) ~= nil
 end
 
--- Return preview lines for a data file, or nil if no suitable tool is installed
+--- Return preview lines for a data file, or nil if no suitable tool is installed.
+---@param path string
+---@return string[]?
 local function preview_data_file(path)
   local ext = path:match("%.([^./]+)$"):lower()
   local py_by_ext = {
@@ -4046,14 +4148,13 @@ local function reject_binary(buf, path, msg)
   vim.notify(msg .. ": " .. vim.fn.fnamemodify(path, ":t"), vim.log.levels.WARN)
   vim.schedule(function()
     if not vim.api.nvim_buf_is_valid(buf) then return end
-    -- Move every window off this buffer onto another open buffer first (falling back to a
-    -- scratch buffer): with a sidebar open, a raw force-delete's own buffer-picking can
-    -- otherwise hand the window an empty buffer and shift focus onto NvimTree instead of
-    -- another open file.
+    -- Move every window off this buffer onto another open buffer first (falling back to a scratch
+    -- buffer): with a sidebar open, the replacement that a raw force-delete picks can be an empty
+    -- buffer and shift focus onto NvimTree instead of another open file.
     for _, win in ipairs(vim.fn.win_findbuf(buf)) do
       if vim.api.nvim_win_is_valid(win) then
-        -- Only trust the alternate buffer if it's actually loaded (see the matching
-        -- comment in nvim-tree's safe_delete_buffer for why an unloaded one is unsafe here).
+        -- Trust the alternate buffer only if it is loaded (see the matching comment in nvim-tree's
+        -- safe_delete_buffer for why an unloaded one is unsafe here).
         local altnr = vim.api.nvim_win_call(win, function() return vim.fn.bufnr("#") end)
         if altnr > 0 and altnr ~= buf and vim.fn.bufloaded(altnr) == 1 then
           pcall(vim.fn.win_execute, win, "silent! keepalt buffer " .. altnr)
@@ -4080,7 +4181,9 @@ end
 
 local binary_group = vim.api.nvim_create_augroup("BinaryGuard", { clear = true })
 
--- Known extensions: BufReadCmd replaces the reader, so the file is never read into memory
+--- Reader for known binary extensions. BufReadCmd replaces the reader, so the file is never read
+--- into memory.
+---@param args table Autocmd callback arguments
 local function known_binary_reader(args)
   local path = vim.fn.fnamemodify(args.match, ":p")
   local ext = (path:match("%.([^./]+)$") or ""):lower()
@@ -4102,8 +4205,10 @@ for _, list in ipairs({ external_exts, data_exts, opaque_exts }) do
 end
 vim.api.nvim_create_autocmd("BufReadCmd", { group = binary_group, pattern = known_patterns, callback = known_binary_reader })
 
--- .docx: nvim can't render Word natively, so offer to convert to PDF (LibreOffice) for
--- in-buffer preview via pdfpreview.nvim, falling back to the OS viewer, or doing nothing.
+--- Reader for .docx files. Neovim cannot render Word natively, so offer to convert to PDF
+--- (LibreOffice) for in-buffer preview via pdfpreview.nvim, falling back to the OS viewer, or doing
+--- nothing.
+---@param args table Autocmd callback arguments
 local function docx_reader(args)
   local path = vim.fn.fnamemodify(args.match, ":p")
   local name = vim.fn.fnamemodify(path, ":t")
@@ -4131,7 +4236,7 @@ local function docx_reader(args)
   local pdf_path = vim.fn.fnamemodify(path, ":r") .. ".pdf"
   show_preview(args.buf, path, { "Converting " .. name .. " to PDF..." })
   local progress = Tool_Progress.start({ client = "libreoffice", title = "Converting to PDF", message = name })
-  -- LibreOffice overwrites an existing output file of the same name without prompting
+  -- LibreOffice overwrites an existing output file of the same name without prompting.
   vim.system(
     { soffice, "--headless", "--convert-to", "pdf", "--outdir", vim.fn.fnamemodify(path, ":h"), path },
     { text = true },
@@ -4143,23 +4248,26 @@ local function docx_reader(args)
           return reject_binary(args.buf, path, "Conversion failed")
         end
         progress:finish({ title = "Converted " .. name .. " to PDF" })
-        -- show_preview already marked the placeholder bufhidden=wipe, so it's dropped once we navigate off it.
-        -- keepalt avoids adding another alternate-buffer hop on top of the one already left behind by
-        -- show_preview's rename (renaming a buffer leaves an unlisted stub for its old name, see :help :file).
-        vim.cmd("keepalt edit " .. vim.fn.fnameescape(pdf_path)) -- triggers pdfpreview.nvim's own BufReadCmd
+        -- show_preview already marked the placeholder bufhidden=wipe, so it is dropped once the
+        -- window navigates away. keepalt avoids adding another alternate-buffer hop on top of the
+        -- one left behind by show_preview's rename (renaming a buffer leaves an unlisted stub for
+        -- its old name, see :help :file). This triggers pdfpreview.nvim's own BufReadCmd.
+        vim.cmd("keepalt edit " .. vim.fn.fnameescape(pdf_path))
       end)
     end
   )
 end
 vim.api.nvim_create_autocmd("BufReadCmd", { group = binary_group, pattern = "*.docx", callback = docx_reader })
 
--- Unknown extensions: check the first 8 KB for NUL bytes; also applies the large-file guard to text files
+-- Unknown extensions: check the first 8 KB for NUL bytes. This also applies the large-file guard to
+-- text files.
 local LARGE_FILE_BYTES = 2 * 1024 * 1024
 vim.api.nvim_create_autocmd("BufReadPre", {
   group = binary_group,
   callback = function(args)
     local path = vim.fn.fnamemodify(args.match, ":p")
-    if path:match("%.pdf$") then return end -- handled by pdfpreview.nvim's own BufReadCmd
+    -- pdfpreview.nvim handles PDFs with its own BufReadCmd.
+    if path:match("%.pdf$") then return end
     local stat = vim.uv.fs_stat(path)
     if not stat or stat.type ~= "file" then return end
     if is_binary_content(path) then
@@ -4176,7 +4284,7 @@ vim.api.nvim_create_autocmd("BufReadPre", {
   end,
 })
 
--- Runs after filetype detection so it can override plugin defaults
+-- Run after filetype detection, so it can override plugin defaults.
 vim.api.nvim_create_autocmd("FileType", {
   group = binary_group,
   callback = function(args)
@@ -4189,7 +4297,7 @@ vim.api.nvim_create_autocmd("FileType", {
   end,
 })
 
--- <leader>G: open the git remote in the browser
+-- <leader>G: open the git remote in the browser.
 vim.keymap.set('n', '<leader>G', function()
   vim.system({ "git", "config", "--get", "remote.origin.url" }, { text = true }, function(res)
     local url = vim.trim(res.stdout or "")
@@ -4226,7 +4334,7 @@ vim.api.nvim_create_autocmd("TermOpen", {
     wo.cursorline = false
     wo.scrolloff = 0
     vim.bo[args.buf].scrollback = 100000
-    -- Copy-on-select: releasing the mouse after a drag yanks the selection to the system clipboard
+    -- Copy-on-select: releasing the mouse after a drag yanks the selection to the system clipboard.
     vim.keymap.set("v", "<LeftRelease>", '"+ygv', { buffer = args.buf, silent = true, desc = "Copy selection" })
     vim.keymap.set("v", "<RightMouse>", '"+y', { buffer = args.buf, silent = true, desc = "Copy selection" })
     vim.keymap.set("n", "<RightMouse>", '"+p', { buffer = args.buf, silent = true, desc = "Paste" })
@@ -4263,7 +4371,7 @@ local function url_at_mouse()
     local s, e = text:find("%a[%w+.-]*://[^%s<>\"'`]+", init)
     if not s then return end
     local url = text:sub(s, e):gsub("[.,;:!?]+$", "")
-    -- Drop a closing bracket the URL does not own, e.g. "(see https://x.com/a)"
+    -- Drop a closing bracket the URL does not own, e.g. "(see https://x.com/a)".
     for open, close in pairs({ ["("] = ")", ["["] = "]", ["{"] = "}" }) do
       local _, opens = url:gsub("%" .. open, "")
       local _, closes = url:gsub("%" .. close, "")
@@ -4293,9 +4401,9 @@ vim.api.nvim_create_autocmd("TermOpen", {
   end,
 })
 
--- Terminal mode: exit and split shortcuts
+-- Terminal mode: exit, shell history, and split shortcuts.
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { noremap = true, silent = true })
--- Alt+k / Alt+j: step through shell history (send Up / Down to the running shell)
+-- Alt+k / Alt+j: step through shell history (send Up / Down to the running shell).
 vim.keymap.set('t', '<M-k>', '<Up>',   { noremap = true, silent = true, desc = "Previous command (Terminal)" })
 vim.keymap.set('t', '<M-j>', '<Down>', { noremap = true, silent = true, desc = "Next command (Terminal)" })
 vim.keymap.set('n', '<leader>th', ':ToggleTerm direction=horizontal<CR>', { noremap = true, silent = true, desc = "Terminal (Horizontal)" })
@@ -4304,7 +4412,7 @@ vim.keymap.set('n', '<leader>tv', ':ToggleTerm direction=vertical size=40<CR>', 
 -- =========================================================================
 -- SELECTION TRACKING AND VISUAL / SELECT MODE HANDLERS
 -- =========================================================================
--- Records whether the current selection started from Insert mode
+-- Whether the current selection started from Insert mode.
 _G._selection_from_insert = false
 local last_insert_exit = 0
 local insert_selection_group = vim.api.nvim_create_augroup("InsertModeSelectionTracking", { clear = true })
@@ -4396,7 +4504,7 @@ local function start_selection_from_insert(motion)
   vim.cmd("normal! v" .. motion)
 end
 
--- Visual / Select mode overrides
+-- Visual / Select mode overrides.
 local modes = {'v', 'x', 's'}
 for _, mode in ipairs(modes) do
   vim.keymap.set(mode, '<BS>', visual_delete_blackhole, { noremap = true, silent = true, desc = "Delete selection" })
@@ -4406,43 +4514,43 @@ for _, mode in ipairs(modes) do
 end
 
 -- Selection keys (Shift+H/J/K/L, Shift+W/B, Shift+Arrows)
--- Shift + H: Select word backward (left in line)
+-- Shift+H: select word backward.
 vim.keymap.set('n', 'H', 'vb', { noremap = true, silent = true, desc = "Select word backward" })
 vim.keymap.set('n', '<S-h>', 'vb', { noremap = true, silent = true, desc = "Select word backward" })
 vim.keymap.set({ 'v', 'x' }, 'H', 'b', { noremap = true, silent = true, desc = "Extend selection word backward" })
 vim.keymap.set({ 'v', 'x' }, '<S-h>', 'b', { noremap = true, silent = true, desc = "Extend selection word backward" })
 
--- Shift + L: Select word forward (right in line)
+-- Shift+L: select word forward.
 vim.keymap.set('n', 'L', 'vw', { noremap = true, silent = true, desc = "Select word forward" })
 vim.keymap.set('n', '<S-l>', 'vw', { noremap = true, silent = true, desc = "Select word forward" })
 vim.keymap.set({ 'v', 'x' }, 'L', 'w', { noremap = true, silent = true, desc = "Extend selection word forward" })
 vim.keymap.set({ 'v', 'x' }, '<S-l>', 'w', { noremap = true, silent = true, desc = "Extend selection word forward" })
 
--- Shift + J: Select multiple lines downward
+-- Shift+J: select lines downward.
 vim.keymap.set('n', 'J', 'vj', { noremap = true, silent = true, desc = "Select line downward" })
 vim.keymap.set('n', '<S-j>', 'vj', { noremap = true, silent = true, desc = "Select line downward" })
 vim.keymap.set({ 'v', 'x' }, 'J', 'j', { noremap = true, silent = true, desc = "Extend selection downward" })
 vim.keymap.set({ 'v', 'x' }, '<S-j>', 'j', { noremap = true, silent = true, desc = "Extend selection downward" })
 
--- Shift + K: Select multiple lines upward
+-- Shift+K: select lines upward.
 vim.keymap.set('n', 'K', 'vk', { noremap = true, silent = true, desc = "Select line upward" })
 vim.keymap.set('n', '<S-k>', 'vk', { noremap = true, silent = true, desc = "Select line upward" })
 vim.keymap.set({ 'v', 'x' }, 'K', 'k', { noremap = true, silent = true, desc = "Extend selection upward" })
 vim.keymap.set({ 'v', 'x' }, '<S-k>', 'k', { noremap = true, silent = true, desc = "Extend selection upward" })
 
--- Shift + W: Select forward WORD (enters Visual mode and extends selection)
+-- Shift+W: select the next WORD (enters Visual mode and extends the selection).
 vim.keymap.set('n', 'W', 'vW', { noremap = true, silent = true, desc = "Select forward WORD" })
 vim.keymap.set('n', '<S-w>', 'vW', { noremap = true, silent = true, desc = "Select forward WORD" })
 vim.keymap.set({ 'v', 'x' }, 'W', 'W', { noremap = true, silent = true, desc = "Extend selection forward WORD" })
 vim.keymap.set({ 'v', 'x' }, '<S-w>', 'W', { noremap = true, silent = true, desc = "Extend selection forward WORD" })
 
--- Shift + B: Select backward WORD (enters Visual mode and extends selection)
+-- Shift+B: select the previous WORD (enters Visual mode and extends the selection).
 vim.keymap.set('n', 'B', 'vB', { noremap = true, silent = true, desc = "Select backward WORD" })
 vim.keymap.set('n', '<S-b>', 'vB', { noremap = true, silent = true, desc = "Select backward WORD" })
 vim.keymap.set({ 'v', 'x' }, 'B', 'B', { noremap = true, silent = true, desc = "Extend selection backward WORD" })
 vim.keymap.set({ 'v', 'x' }, '<S-b>', 'B', { noremap = true, silent = true, desc = "Extend selection backward WORD" })
 
--- Shift + Arrow Keys Selection
+-- Shift+Arrow keys: select.
 vim.keymap.set('n', '<S-Down>', 'vj', { noremap = true, silent = true, desc = "Select line downward" })
 vim.keymap.set('n', '<S-Up>', 'vk', { noremap = true, silent = true, desc = "Select line upward" })
 vim.keymap.set('n', '<S-Left>', 'vb', { noremap = true, silent = true, desc = "Select word backward" })
@@ -4452,35 +4560,35 @@ vim.keymap.set({ 'v', 'x' }, '<S-Up>', 'k', { noremap = true, silent = true, des
 vim.keymap.set({ 'v', 'x' }, '<S-Left>', 'b', { noremap = true, silent = true, desc = "Extend selection word backward" })
 vim.keymap.set({ 'v', 'x' }, '<S-Right>', 'w', { noremap = true, silent = true, desc = "Extend selection word forward" })
 
--- Shift + Alt + J / K: Select multiple lines downward / upward (Insert, Normal, and Visual mode)
--- Insert mode: start selection and step downward / upward
+-- Alt+Shift+J / K: select lines downward / upward (Insert, Normal, and Visual mode).
+-- Insert mode: start a selection and step downward / upward.
 vim.keymap.set('i', '<M-S-j>', function() start_selection_from_insert("j") end, { noremap = true, silent = true, desc = "Select line downward" })
 vim.keymap.set('i', '<M-J>',   function() start_selection_from_insert("j") end, { noremap = true, silent = true, desc = "Select line downward" })
 vim.keymap.set('i', '<M-S-k>', function() start_selection_from_insert("k") end, { noremap = true, silent = true, desc = "Select line upward" })
 vim.keymap.set('i', '<M-K>',   function() start_selection_from_insert("k") end, { noremap = true, silent = true, desc = "Select line upward" })
 
--- Shift + Arrows from Insert mode: start selection and track insert origin
+-- Shift+Arrows from Insert mode: start a selection and track the Insert origin.
 vim.keymap.set('i', '<S-Down>',  function() start_selection_from_insert("j") end, { noremap = true, silent = true, desc = "Select line downward (Insert)" })
 vim.keymap.set('i', '<S-Up>',    function() start_selection_from_insert("k") end, { noremap = true, silent = true, desc = "Select line upward (Insert)" })
 vim.keymap.set('i', '<S-Left>',  function() start_selection_from_insert("b") end, { noremap = true, silent = true, desc = "Select word backward (Insert)" })
 vim.keymap.set('i', '<S-Right>', function() start_selection_from_insert("w") end, { noremap = true, silent = true, desc = "Select word forward (Insert)" })
 
--- Normal mode: start selection and step downward / upward
+-- Normal mode: start a selection and step downward / upward.
 vim.keymap.set('n', '<M-S-j>', 'vj', { noremap = true, silent = true, desc = "Select line downward" })
 vim.keymap.set('n', '<M-J>',   'vj', { noremap = true, silent = true, desc = "Select line downward" })
 vim.keymap.set('n', '<M-S-k>', 'vk', { noremap = true, silent = true, desc = "Select line upward" })
 vim.keymap.set('n', '<M-K>',   'vk', { noremap = true, silent = true, desc = "Select line upward" })
 
--- Visual / Selection mode: extend selection downward / upward
+-- Visual / Select mode: extend the selection downward / upward.
 vim.keymap.set({ 'v', 'x' }, '<M-S-j>', 'j', { noremap = true, silent = true, desc = "Extend selection downward" })
 vim.keymap.set({ 'v', 'x' }, '<M-J>',   'j', { noremap = true, silent = true, desc = "Extend selection downward" })
 vim.keymap.set({ 'v', 'x' }, '<M-S-k>', 'k', { noremap = true, silent = true, desc = "Extend selection upward" })
 vim.keymap.set({ 'v', 'x' }, '<M-K>',   'k', { noremap = true, silent = true, desc = "Extend selection upward" })
 
--- Join lines: J is taken by downward selection, so joining lives elsewhere
+-- Join lines: J is taken by downward selection, so joining lives on gJ.
 vim.keymap.set('n', 'gJ', 'J', { noremap = true, silent = true, desc = "Join Lines" })
 
--- Guard against an accidental `dgg` when <C-d> is followed by gg
+-- Guard against an accidental `dgg` when <C-d> is followed by gg.
 vim.keymap.set('n', 'dgg', 'gg', { noremap = true, silent = true, desc = "Prevent accidental deletion from <C-d> + gg rollover" })
 
 -- =========================================================================
