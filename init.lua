@@ -262,6 +262,17 @@ require("lazy").setup({
         return true
       end
 
+      -- Whether any listed buffer is a real file (not a directory, scratch or plugin buffer)
+      _G.Has_Session_Files = function()
+        for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+          local name = vim.api.nvim_buf_get_name(buf)
+          if vim.bo[buf].buflisted and vim.bo[buf].buftype == "" and name ~= "" and vim.fn.isdirectory(name) == 0 then
+            return true
+          end
+        end
+        return false
+      end
+
       -- Save the active project's session under its own root, then tear the project down
       _G.Close_Project = function()
         pcall(function() require("aerial").close() end)
@@ -269,7 +280,12 @@ require("lazy").setup({
         vim.cmd("silent! wall") -- Save all modified buffers first
         -- Name the session explicitly after the project root so it can't depend on a drifted/stale cwd
         local root = _G.Pin_Project_Root() and _G._project_root or nil
-        require("auto-session").save_session(root)
+        -- Only save when this instance holds the project's state: its session was restored here, or files were
+        -- opened. Opening via Browse Dirs / Open Project in Tree / `nvim .` doesn't restore the session, so saving
+        -- then would replace the stored tabs with an empty workspace (just the root in the tree).
+        if vim.v.this_session ~= "" or _G.Has_Session_Files() then
+          require("auto-session").save_session(root)
+        end
         for _, client in ipairs(vim.lsp.get_clients()) do client:stop() end -- Stop LSP servers on leaving a project (comment out to keep servers running)
         for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
           if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].buflisted then
@@ -278,6 +294,9 @@ require("lazy").setup({
         end
         vim.v.this_session = "" -- Clear session to prevent overwriting on next project
         _G._project_root = nil
+        -- Leave the old project's directory: nvim-tree keeps its explorer after closing and re-roots on
+        -- DirChanged, so a lingering cwd would resurface the old project's tree in the next one.
+        vim.cmd("cd " .. vim.fn.fnameescape(vim.fn.expand("~")))
       end
 
       -- Universal project open helper: cleanly opens project in NvimTree and focuses code window
@@ -571,7 +590,8 @@ require("lazy").setup({
           end
         end
 
-        -- 1. Wipe only orphaned, listed empty placeholder/alpha buffers (never delete unlisted/plugin/nui/floating buffers)
+        -- 1. Wipe only orphaned, listed empty placeholder/alpha buffers and directory buffers
+        --    (never delete unlisted/plugin/nui/floating buffers)
         for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
           if vim.api.nvim_buf_is_valid(bufnr) then
             local name = vim.api.nvim_buf_get_name(bufnr)
@@ -586,6 +606,10 @@ require("lazy").setup({
             if ft == "alpha" then
               pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
             elseif listed and name == "" and bt == "" and is_empty and not modified and not visible_bufs[bufnr] then
+              pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
+            elseif listed and bt == "" and name ~= "" and vim.fn.isdirectory(name) == 1 then
+              -- `nvim .` / `:e dir` leave the directory itself as a buffer; saved into a session, restoring it
+              -- just reopens the root in the tree in place of the project's files
               pcall(vim.api.nvim_buf_delete, bufnr, { force = true })
             end
           end
@@ -660,6 +684,9 @@ require("lazy").setup({
       local as = require("auto-session")
       local auto_save_session = as.auto_save_session
       as.auto_save_session = function(...)
+        -- Same rule as Close_Project: no session restored and no files opened (e.g. `nvim .` then quit)
+        -- means there's nothing of the project's here, so keep its saved session as is
+        if vim.v.this_session == "" and not _G.Has_Session_Files() then return false end
         _G.Pin_Project_Root()
         return auto_save_session(...)
       end
@@ -995,12 +1022,12 @@ require("lazy").setup({
         local name = vim.fn.fnamemodify(target_path, ":t")
         if name == "" then name = target_path end
 
-        vim.notify(string.format("Deleting '%s' in background...", name), vim.log.levels.INFO, { title = "Async Delete" })
+        local progress = _G.Tool_Progress.start({ client = vim.fn.fnamemodify(cmd[1], ":t:r"), title = "Deleting", message = name })
 
         vim.system(cmd, {}, function(obj)
           vim.schedule(function()
             if obj.code == 0 then
-              vim.notify(string.format("Successfully deleted '%s'", name), vim.log.levels.INFO, { title = "Async Delete" })
+              progress:finish({ title = "Deleted " .. name })
               -- Clean up any open buffers matching the deleted path safely
               for _, buf in ipairs(vim.api.nvim_list_bufs()) do
                 if vim.api.nvim_buf_is_valid(buf) then
@@ -1011,6 +1038,7 @@ require("lazy").setup({
                 end
               end
             else
+              progress:fail({ title = "Delete failed: " .. name })
               local err = (obj.stderr and obj.stderr ~= "") and obj.stderr or ("Exit code " .. tostring(obj.code))
               vim.notify(string.format("Failed to delete '%s': %s", name, vim.trim(err)), vim.log.levels.ERROR, { title = "Async Delete" })
             end
@@ -1540,16 +1568,118 @@ require("lazy").setup({
           lsp_format = "fallback",
           timeout_ms = timeout,
           quiet = true,
-        }, opts), function(err, did_edit)
+        }, opts), function(err)
           if err then
             handle_conform_errors(err, bufnr)
           else
             clear_conform_errors(bufnr)
-            if did_edit then
-              vim.notify("Formatted buffer successfully", vim.log.levels.INFO, { title = "Conform" })
-            end
           end
         end)
+      end
+
+      -- oxfmt style per project: the nearest oxfmt or Prettier config between the file and its project root wins,
+      -- otherwise the global style in formatters/oxfmt.json. oxfmt only discovers some of these names itself and
+      -- ignores Prettier configs, so the chosen config is always passed explicitly with -c.
+      local OXFMT_CONFIGS = {
+        ".oxfmtrc.json", ".oxfmtrc.jsonc",
+        "oxfmt.config.ts", "oxfmt.config.mts", "oxfmt.config.cts", "oxfmt.config.js", "oxfmt.config.mjs", "oxfmt.config.cjs",
+      }
+      local PRETTIER_CONFIGS = {
+        ".prettierrc", ".prettierrc.json", ".prettierrc.json5", ".prettierrc.yaml", ".prettierrc.yml", ".prettierrc.toml",
+        ".prettierrc.js", ".prettierrc.mjs", ".prettierrc.cjs", ".prettierrc.ts", ".prettierrc.mts", ".prettierrc.cts",
+        "prettier.config.js", "prettier.config.mjs", "prettier.config.cjs", "prettier.config.ts", "prettier.config.mts", "prettier.config.cts",
+        "package.json", "package.yaml", -- only with a "prettier" key
+      }
+      local OXFMT_GLOBAL = vim.fn.stdpath("config") .. "/formatters/oxfmt.json"
+
+      local function has_prettier_key(path)
+        local ok, lines = pcall(vim.fn.readfile, path)
+        if not ok then return false end
+        if path:match("%.json$") then
+          local decoded, pkg = pcall(vim.json.decode, table.concat(lines, "\n"))
+          return decoded and type(pkg) == "table" and pkg.prettier ~= nil
+        end
+        for _, line in ipairs(lines) do
+          if line:match("^prettier:") then return true end
+        end
+        return false
+      end
+
+      ---Nearest formatting config from the file's directory up to its project root (at the same level, oxfmt beats Prettier)
+      ---@return "oxfmt"|"prettier"|nil kind, string? path, string root
+      local function find_format_config(filename)
+        local root = (_G._project_root and vim.fs.relpath(_G._project_root, filename) and _G._project_root)
+          or vim.fs.root(filename, ".git") or vim.fs.dirname(filename)
+        for dir in vim.fs.parents(filename) do
+          for _, name in ipairs(OXFMT_CONFIGS) do
+            if vim.uv.fs_stat(dir .. "/" .. name) then return "oxfmt", dir .. "/" .. name, root end
+          end
+          for _, name in ipairs(PRETTIER_CONFIGS) do
+            local path = dir .. "/" .. name
+            if vim.uv.fs_stat(path) and (not name:match("^package%.") or has_prettier_key(path)) then
+              return "prettier", path, root
+            end
+          end
+          if dir == root then break end
+        end
+        return nil, nil, root
+      end
+
+      -- oxfmt takes Prettier settings only through `--migrate=prettier`, which writes .oxfmtrc.json into its cwd. Run it
+      -- in a cache dir that links to the project's config (links keep a JS config's relative imports working), and
+      -- redo it whenever the Prettier config changes.
+      local prettier_failures = {}
+      local function oxfmt_config_from_prettier(path)
+        local dir = vim.fn.stdpath("cache") .. "/oxfmt-prettier/" .. vim.fn.sha256(path):sub(1, 16)
+        local out = dir .. "/.oxfmtrc.json"
+        local src, cached = vim.uv.fs_stat(path), vim.uv.fs_stat(out)
+        local src_mtime = src and (src.mtime.sec * 1e9 + src.mtime.nsec) or 0
+        if cached and cached.mtime.sec * 1e9 + cached.mtime.nsec >= src_mtime then return out end
+        local key = path .. ":" .. src_mtime
+        if prettier_failures[key] then return nil end
+
+        vim.fn.mkdir(dir, "p")
+        for _, name in ipairs({ vim.fs.basename(path), ".prettierignore" }) do
+          local target, link = vim.fs.dirname(path) .. "/" .. name, dir .. "/" .. name
+          vim.uv.fs_unlink(link)
+          if vim.uv.fs_stat(target) and not vim.uv.fs_symlink(target, link) then vim.uv.fs_copyfile(target, link) end
+        end
+        vim.uv.fs_unlink(out)
+        local name = vim.fs.basename(path)
+        local progress = _G.Tool_Progress.start({ client = "oxfmt", title = "Reading Prettier config", message = name })
+        local res = vim.system({ "oxfmt", "--migrate=prettier" }, { cwd = dir, text = true }):wait(10000)
+        if res.code ~= 0 or not vim.uv.fs_stat(out) then
+          prettier_failures[key] = true
+          progress:fail({ title = "Couldn't read " .. name })
+          local detail = vim.trim((res.stderr or "") .. (res.stdout or ""))
+          vim.notify(("oxfmt couldn't read %s, so the global style applies:\n%s"):format(path, detail), vim.log.levels.WARN, { title = "oxfmt" })
+          return nil
+        end
+        progress:finish({ title = "Using " .. name })
+        return out
+      end
+
+      -- A project's .editorconfig still sets indentation, line width and line endings over the global style. oxfmt
+      -- reads only the .editorconfig nearest its cwd, so use the merged, glob-matched properties Neovim applied to
+      -- the buffer (b:editorconfig) instead.
+      local function global_oxfmt_config(bufnr)
+        local editorconfig = vim.b[bufnr].editorconfig
+        if type(editorconfig) ~= "table" then return OXFMT_GLOBAL end
+        local options = {}
+        if editorconfig.indent_style == "tab" or editorconfig.indent_style == "space" then
+          options.useTabs = editorconfig.indent_style == "tab"
+        end
+        options.tabWidth = tonumber(editorconfig.indent_size) or tonumber(editorconfig.tab_width)
+        options.printWidth = tonumber(editorconfig.max_line_length)
+        if vim.tbl_contains({ "lf", "crlf", "cr" }, editorconfig.end_of_line) then options.endOfLine = editorconfig.end_of_line end
+        if vim.tbl_isempty(options) then return OXFMT_GLOBAL end
+
+        local decoded, global = pcall(function() return vim.json.decode(table.concat(vim.fn.readfile(OXFMT_GLOBAL), "\n")) end)
+        if not decoded or type(global) ~= "table" then return OXFMT_GLOBAL end
+        local merged = vim.json.encode(vim.tbl_extend("force", global, options))
+        local out = vim.fn.stdpath("cache") .. "/oxfmt-global-" .. vim.fn.sha256(merged):sub(1, 16) .. ".json"
+        if not vim.uv.fs_stat(out) then vim.fn.writefile({ merged }, out) end
+        return out
       end
 
       conform.setup({
@@ -1589,13 +1719,57 @@ require("lazy").setup({
         formatters = {
           oxfmt = {
             command = "oxfmt",
-            args = { "--stdin-filepath", "$FILENAME" },
+            args = function(_, ctx)
+              local kind, path = find_format_config(ctx.filename)
+              local config = (kind == "oxfmt" and path)
+                or (kind == "prettier" and oxfmt_config_from_prettier(path))
+                or global_oxfmt_config(ctx.buf)
+              return { "-c", config, "--stdin-filepath", "$FILENAME" }
+            end,
+            -- Where `oxfmt` would run from the CLI (the config's folder, else the project root): oxfmt reads
+            -- .gitignore, .prettierignore and .editorconfig from its working directory
+            cwd = function(_, ctx)
+              local _, path, root = find_format_config(ctx.filename)
+              return path and vim.fs.dirname(path) or root
+            end,
             stdin = true,
           },
           ["clang-format"] = { prepend_args = { "-style={UseTab: Always, TabWidth: 4, IndentWidth: 4}" } },
           rustfmt = { prepend_args = { "--config", "hard_tabs=true,tab_spaces=4" } },
         },
       })
+
+      -- Report every run (format-on-save, :Format, gq) as a bottom-right progress line naming the formatter
+      local conform_format = conform.format
+      conform.format = function(opts, callback)
+        opts = opts or {}
+        local bufnr = (opts.bufnr and opts.bufnr ~= 0) and opts.bufnr or vim.api.nvim_get_current_buf()
+        local names = {}
+        local ok, formatters = pcall(conform.resolve_formatters, opts.formatters or conform.list_formatters_for_buffer(bufnr), bufnr, false, opts.stop_after_first)
+        for _, formatter in ipairs(ok and formatters or {}) do table.insert(names, formatter.name) end
+        if #names == 0 and (opts.lsp_format or "never") ~= "never" then
+          for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/formatting" })) do
+            table.insert(names, client.name)
+          end
+        end
+        if #names == 0 or not _G.Tool_Progress then return conform_format(opts, callback) end
+
+        local file = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(bufnr), ":t")
+        local progress = _G.Tool_Progress.start({ client = table.concat(names, ", "), title = "Formatting", message = file })
+        local ran, result = pcall(conform_format, opts, function(err, did_edit)
+          if err then
+            progress:fail({ title = "Format failed: " .. file })
+          else
+            progress:finish({ title = (did_edit and "Formatted " or "Already formatted ") .. file })
+          end
+          if callback then callback(err, did_edit) end
+        end)
+        if not ran then
+          progress:fail({ title = "Format failed: " .. file })
+          error(result, 0)
+        end
+        return result
+      end
 
       -- Use conform as the formatexpr for gq formatting
       vim.o.formatexpr = "v:lua.require'conform'.formatexpr()"
@@ -2140,8 +2314,10 @@ require("lazy").setup({
       input = {
         border = "rounded",
         mappings = {
-          n = { ["<Esc>"] = "Close", ["<CR>"] = "Confirm" },
-          i = { ["<Esc>"] = "Close", ["<CR>"] = "Confirm", ["<Up>"] = "HistoryPrev", ["<Down>"] = "HistoryNext" },
+          -- Alt+u is this config's Esc; the global smart_escape only drops to Normal mode
+          -- (its fed <Esc> is non-remapping), so close the dialog explicitly.
+          n = { ["<Esc>"] = "Close", ["<M-u>"] = "Close", ["<M-U>"] = "Close", ["<M-S-u>"] = "Close", ["<CR>"] = "Confirm" },
+          i = { ["<Esc>"] = "Close", ["<M-u>"] = "Close", ["<M-U>"] = "Close", ["<M-S-u>"] = "Close", ["<CR>"] = "Confirm", ["<Up>"] = "HistoryPrev", ["<Down>"] = "HistoryNext" },
         }
       },
       select = { enabled = false }, -- fzf-lua's register_ui_select() handles vim.ui.select
@@ -2512,6 +2688,291 @@ vim.api.nvim_create_autocmd("LspAttach", {
 })
 
 -- =========================================================================
+-- TOOL PROGRESS (bottom-right, next to LSP progress)
+-- =========================================================================
+-- Work that never arrives as LSP $/progress (formatters, diagnostic re-checks, conversions, plugin updates)
+-- is drawn by noice's LSP progress view, so it looks like rust-analyzer's "cargo check" lines:
+-- "<message> ⠋ <title> <tool>" while running, then "✔ <title> <tool>" (or "✗ ...") for a moment.
+local progress_group = vim.api.nvim_create_augroup("ToolProgress", { clear = true })
+local progress_items = {} ---@type table<integer, table>
+local progress_seq = 0
+local progress_timer = nil
+
+local PROGRESS_FAILED_FORMAT = {
+  { "✗ ", hl_group = "DiagnosticError" },
+  { "{data.progress.title} ", hl_group = "NoiceLspProgressTitle" },
+  { "{data.progress.client} ", hl_group = "NoiceLspProgressClient" },
+}
+
+-- noice's message modules (the ones its own LSP progress uses); nil until noice has loaded
+local function noice_progress()
+  if not package.loaded["noice"] then return nil end
+  local ok, api = pcall(function()
+    return {
+      Message = require("noice.message"),
+      Manager = require("noice.message.manager"),
+      Format = require("noice.text.format"),
+      Router = require("noice.message.router"),
+      opts = require("noice.config").options.lsp.progress,
+    }
+  end)
+  return ok and api or nil
+end
+
+local function render_progress(item)
+  local noice = noice_progress()
+  if not noice then return nil end
+  item.msg = item.msg or noice.Message("lsp", "progress")
+  item.msg.opts.progress = { client = item.client, title = item.title, message = item.message }
+  local format = item.state == "running" and noice.opts.format
+    or item.state == "done" and noice.opts.format_done
+    or vim.deepcopy(PROGRESS_FAILED_FORMAT)
+  noice.Manager.add(noice.Format.format(item.msg, format))
+  return noice
+end
+
+local function remove_progress(item)
+  progress_items[item.id] = nil
+  local noice = noice_progress()
+  if noice and item.msg then noice.Manager.remove(item.msg) end
+end
+
+-- Re-render running lines so their spinners animate, as noice does for LSP progress
+local function progress_tick()
+  local running = false
+  for _, item in pairs(progress_items) do
+    if item.state == "running" then
+      running = true
+      render_progress(item)
+    end
+  end
+  if not running and progress_timer then
+    progress_timer:stop()
+    progress_timer:close()
+    progress_timer = nil
+  end
+end
+
+local ProgressHandle = {}
+ProgressHandle.__index = ProgressHandle
+
+local function settle_progress(item, state, opts, linger_ms)
+  if item.state ~= "running" then return end
+  item.state = state
+  for k, v in pairs(opts or {}) do item[k] = v end
+  render_progress(item)
+  vim.defer_fn(function() remove_progress(item) end, linger_ms)
+end
+
+---Show "✔ <title> <tool>" for a moment, then remove the line
+---@param opts? {title?: string, linger?: integer}
+function ProgressHandle:finish(opts)
+  settle_progress(self, "done", opts, opts and opts.linger or 1500)
+end
+
+---Show "✗ <title> <tool>" a little longer (noice's mini view hides any line 2s after its last update)
+---@param opts? {title?: string, linger?: integer}
+function ProgressHandle:fail(opts)
+  settle_progress(self, "failed", opts, opts and opts.linger or 2000)
+end
+
+---Remove the line without a result (the work was superseded or abandoned)
+function ProgressHandle:cancel()
+  if self.state ~= "running" then return end
+  self.state = "cancelled"
+  remove_progress(self)
+end
+
+local Tool_Progress = {}
+_G.Tool_Progress = Tool_Progress
+
+---Start a bottom-right progress line: "<message> ⠋ <title> <tool>"
+---@param opts {client: string, title: string, message?: string}
+---@return table handle with :finish(), :fail() and :cancel()
+function Tool_Progress.start(opts)
+  progress_seq = progress_seq + 1
+  local item = setmetatable({ id = progress_seq, state = "running", client = opts.client, title = opts.title, message = opts.message }, ProgressHandle)
+  progress_items[item.id] = item
+  local noice = render_progress(item)
+  -- Draw it now: callers may block nvim next (sync format-on-save, jupytext) and the line should show meanwhile
+  if noice and not vim.in_fast_event() then pcall(noice.Router.update) end
+  if not progress_timer then
+    local interval = noice and noice.opts.throttle or 100
+    progress_timer = vim.uv.new_timer()
+    progress_timer:start(interval, interval, vim.schedule_wrap(progress_tick))
+  end
+  return item
+end
+
+-- Diagnostic re-checks. After an edit, servers recompute diagnostics without reporting $/progress (vtsls takes
+-- ~0.5s, texlab ~0.3s, basedpyright longer on big files), so track each one: pull servers by their
+-- textDocument/diagnostic requests, push servers from didChange until they publish for that file. Only checks
+-- still running after CHECK_DELAY_MS show up (clangd, gopls and taplo answer instantly), and none mid-insert.
+local CHECK_DELAY_MS = 300
+local CHECK_TIMEOUT_MS = 6000
+local CHECK_SKIP = { rust_analyzer = true } -- publishes only after cargo check, which it reports itself
+local lsp_checks = {} ---@type table<string, table>
+local lsp_published = {} ---@type table<string, boolean> push server has published for this buffer
+local lsp_answers = {} ---@type table<integer, boolean> push server has answered an edit with a publish
+local lsp_unanswered = {} ---@type table<integer, boolean> push server never answers edits: stop tracking it
+
+local function check_key(client_id, buf)
+  return client_id .. ":" .. buf
+end
+
+local function end_check(key, completed)
+  local check = lsp_checks[key]
+  if not check then return end
+  lsp_checks[key] = nil
+  if not check.handle then return end
+  if completed then
+    check.handle:finish({ title = "Checked " .. check.handle.message, linger = 500 })
+  else
+    check.handle:cancel()
+  end
+end
+
+local function show_check(key)
+  local check = lsp_checks[key]
+  if not check or check.handle then return end
+  local wait = CHECK_DELAY_MS - (vim.uv.now() - check.started)
+  if wait > 0 then
+    vim.defer_fn(function() show_check(key) end, wait)
+    return
+  end
+  if vim.fn.mode():match("^[iR]") then return end -- picked up on InsertLeave
+  local client = vim.lsp.get_client_by_id(check.client_id)
+  if not client or not vim.api.nvim_buf_is_valid(check.buf) then return end
+  check.handle = Tool_Progress.start({
+    client = client.name,
+    title = "Checking",
+    message = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(check.buf), ":t"),
+  })
+end
+
+local function begin_check(client_id, buf)
+  local key = check_key(client_id, buf)
+  local check = lsp_checks[key]
+  if check then return check end
+  check = { client_id = client_id, buf = buf, started = vim.uv.now(), pulls = {} }
+  lsp_checks[key] = check
+  show_check(key)
+  vim.defer_fn(function()
+    if lsp_checks[key] ~= check then return end
+    if not check.pull and not lsp_answers[client_id] then lsp_unanswered[client_id] = true end
+    end_check(key, false)
+  end, CHECK_TIMEOUT_MS)
+  return check
+end
+
+vim.api.nvim_create_autocmd("LspRequest", {
+  group = progress_group,
+  callback = function(ev)
+    local req = ev.data.request
+    if req.method ~= "textDocument/diagnostic" then return end
+    local client = vim.lsp.get_client_by_id(ev.data.client_id)
+    if not client or CHECK_SKIP[client.name] then return end
+    local buf = req.bufnr or ev.buf
+    if req.type == "pending" then
+      local check = begin_check(client.id, buf)
+      check.pull = true
+      check.pulls[ev.data.request_id] = true
+      return
+    end
+    local key = check_key(client.id, buf)
+    local check = lsp_checks[key]
+    if not check then return end
+    check.pulls[ev.data.request_id] = nil
+    check.completed = check.completed or req.type == "complete"
+    -- A cancelled pull is re-sent right away; finish only once nothing is pending after this tick
+    vim.schedule(function()
+      if lsp_checks[key] == check and next(check.pulls) == nil then end_check(key, check.completed) end
+    end)
+  end,
+})
+
+vim.api.nvim_create_autocmd("LspNotify", {
+  group = progress_group,
+  callback = function(ev)
+    if ev.data.method ~= "textDocument/didChange" then return end
+    local client = vim.lsp.get_client_by_id(ev.data.client_id)
+    if not client or CHECK_SKIP[client.name] or lsp_unanswered[client.id] then return end
+    if client:supports_method("textDocument/diagnostic") then return end -- pull server, tracked above
+    local uri = vim.tbl_get(ev.data, "params", "textDocument", "uri")
+    if not uri then return end
+    local buf = vim.uri_to_bufnr(uri)
+    if lsp_published[check_key(client.id, buf)] then begin_check(client.id, buf) end
+  end,
+})
+
+local publish_diagnostics = vim.lsp.handlers["textDocument/publishDiagnostics"]
+vim.lsp.handlers["textDocument/publishDiagnostics"] = function(err, result, ctx, ...)
+  if result and result.uri then
+    local key = check_key(ctx.client_id, vim.uri_to_bufnr(result.uri))
+    lsp_published[key] = true
+    if lsp_checks[key] then lsp_answers[ctx.client_id] = true end
+    end_check(key, true)
+  end
+  return publish_diagnostics(err, result, ctx, ...)
+end
+
+vim.api.nvim_create_autocmd("InsertLeave", {
+  group = progress_group,
+  callback = function()
+    for key in pairs(lsp_checks) do show_check(key) end
+  end,
+})
+
+vim.api.nvim_create_autocmd("LspDetach", {
+  group = progress_group,
+  callback = function(ev)
+    local key = check_key(ev.data.client_id, ev.buf)
+    lsp_published[key] = nil
+    end_check(key, false)
+  end,
+})
+
+-- lazy.nvim runs, including the daily background update check that is otherwise silent (checker.notify = false)
+local lazy_runs = {}
+local lazy_titles = {
+  Check = { "Checking for plugin updates" },
+  Install = { "Installing plugins", "Plugins installed" },
+  Update = { "Updating plugins", "Plugins updated" },
+  Sync = { "Syncing plugins", "Plugins synced" },
+  Clean = { "Cleaning plugins", "Plugins cleaned" },
+  Restore = { "Restoring plugins", "Plugins restored" },
+  Build = { "Building plugins", "Plugins built" },
+}
+for op, titles in pairs(lazy_titles) do
+  vim.api.nvim_create_autocmd("User", {
+    group = progress_group,
+    pattern = "Lazy" .. op .. "Pre",
+    callback = function()
+      if lazy_runs[op] then lazy_runs[op]:cancel() end
+      lazy_runs[op] = Tool_Progress.start({ client = "lazy.nvim", title = titles[1] })
+    end,
+  })
+  vim.api.nvim_create_autocmd("User", {
+    group = progress_group,
+    pattern = "Lazy" .. op,
+    callback = function()
+      local run = lazy_runs[op]
+      lazy_runs[op] = nil
+      if not run then return end
+      local done = titles[2]
+      if op == "Check" then
+        local updates = 0
+        for _, plugin in pairs(require("lazy.core.config").plugins) do
+          if plugin._.updates then updates = updates + 1 end
+        end
+        done = updates == 0 and "Plugins up to date" or ("%d plugin update%s available"):format(updates, updates == 1 and "" or "s")
+      end
+      run:finish({ title = done })
+    end,
+  })
+end
+
+-- =========================================================================
 -- 4. CORE EDITOR SETTINGS, AUTOCMDS, AND GUARDS
 -- =========================================================================
 vim.opt.termguicolors = true
@@ -2543,7 +3004,7 @@ vim.opt.inccommand = "split"
 vim.opt.mouse = "a"
 vim.opt.fillchars:append({ eob = " " })
 vim.opt.list = true
-vim.opt.listchars = { tab = "» ", trail = "·", nbsp = "␣" }
+vim.opt.listchars = { tab = "  ", trail = "·", nbsp = "␣" } -- Tabs render as plain space (tab-indented code would show a marker per level)
 vim.opt.autoread = true
 vim.opt.sessionoptions = { "buffers", "curdir", "folds", "help", "tabpages", "winsize", "winpos", "terminal" } -- Exclude 'blank' to avoid saving empty/untitled placeholder windows
 
@@ -2831,10 +3292,12 @@ vim.api.nvim_create_autocmd({ "BufReadCmd" }, {
   pattern = "*.ipynb",
   callback = function(args)
     local file = args.file
+    local fname = vim.fn.fnamemodify(file, ":t")
     local cmd = get_jupytext_cmd({ "--to", "py:percent", "--output", "-", file })
+    local progress = Tool_Progress.start({ client = "jupytext", title = "Converting", message = fname })
     local code, out, err = run_sync(cmd)
     if code ~= 0 or out == "" then
-      local fname = vim.fn.fnamemodify(file, ":t")
+      progress:fail({ title = "Conversion failed: " .. fname })
       vim.notify("Jupytext failed to convert " .. fname .. ":\n" .. (err ~= "" and err or "Empty output"), vim.log.levels.WARN)
 
       vim.schedule(function()
@@ -2849,13 +3312,15 @@ vim.api.nvim_create_autocmd({ "BufReadCmd" }, {
         }, function(choice, idx)
           if idx == 1 then
             local conv_cmd = get_nbconvert_cmd(file)
-            vim.notify("Upgrading notebook format for " .. fname .. "...", vim.log.levels.INFO)
+            local upgrade = Tool_Progress.start({ client = "nbconvert", title = "Upgrading to nbformat 4", message = fname })
             local conv_code, conv_out, conv_err = run_sync(conv_cmd)
             if conv_code == 0 then
-              vim.notify("Successfully upgraded " .. fname .. " to nbformat 4! Reloading...", vim.log.levels.INFO)
+              upgrade:finish({ title = "Upgraded " .. fname .. " to nbformat 4" })
               local retry_cmd = get_jupytext_cmd({ "--to", "py:percent", "--output", "-", file })
+              local retry = Tool_Progress.start({ client = "jupytext", title = "Converting", message = fname })
               local retry_code, retry_out, retry_err = run_sync(retry_cmd)
               if retry_code == 0 and retry_out ~= "" then
+                retry:finish({ title = "Converted " .. fname })
                 local lines = vim.split(retry_out, "\n", { trimempty = false })
                 if vim.api.nvim_buf_is_valid(args.buf) then
                   vim.api.nvim_buf_set_lines(args.buf, 0, -1, false, lines)
@@ -2863,9 +3328,11 @@ vim.api.nvim_create_autocmd({ "BufReadCmd" }, {
                   vim.bo[args.buf].modified = false
                 end
               else
+                retry:fail({ title = "Conversion failed: " .. fname })
                 vim.notify("Jupytext conversion failed after upgrade: " .. retry_err, vim.log.levels.ERROR)
               end
             else
+              upgrade:fail({ title = "Upgrade failed: " .. fname })
               vim.notify("nbconvert failed:\n" .. conv_err .. conv_out, vim.log.levels.ERROR)
             end
           else
@@ -2895,6 +3362,7 @@ vim.api.nvim_create_autocmd({ "BufReadCmd" }, {
     vim.api.nvim_buf_set_lines(args.buf, 0, -1, false, lines)
     vim.bo[args.buf].filetype = "python"
     vim.bo[args.buf].modified = false
+    progress:finish({ title = "Converted " .. fname })
   end,
 })
 
@@ -2906,12 +3374,16 @@ vim.api.nvim_create_autocmd({ "BufWriteCmd" }, {
     local lines = vim.api.nvim_buf_get_lines(args.buf, 0, -1, false)
     local content = table.concat(lines, "\n")
     local cmd = get_jupytext_cmd({ "--from", "py:percent", "--to", "ipynb", "--output", file, "-" })
+    local fname = vim.fn.fnamemodify(file, ":t")
+    local progress = Tool_Progress.start({ client = "jupytext", title = "Saving", message = fname })
     local code, _, err = run_sync(cmd, content)
     if code ~= 0 then
+      progress:fail({ title = "Save failed: " .. fname })
       vim.notify("Jupytext failed to save " .. file .. ": " .. err, vim.log.levels.ERROR)
       return
     end
     vim.bo[args.buf].modified = false
+    progress:finish({ title = "Saved " .. fname })
   end,
 })
 
@@ -3075,7 +3547,14 @@ end, { noremap = true, silent = true, desc = "Toggle Code Structure Sidebar" })
 
 -- File explorer sidebar (nvim-tree)
 vim.keymap.set("n", "<leader>e", function()
-  vim.cmd("NvimTreeToggle")
+  -- No active project (file opened from the dashboard's Recent/Find): adopt the file's project first,
+  -- so the tree roots there instead of wherever it was left.
+  local file = vim.api.nvim_buf_get_name(0)
+  if not _G._project_root and vim.bo.buftype == "" and vim.fn.filereadable(file) == 1 and _G.Open_Project_Directory then
+    _G.Open_Project_Directory(vim.fs.root(file, ".git") or vim.fs.dirname(file))
+  else
+    vim.cmd("NvimTreeToggle")
+  end
   if _G.Fix_Sidebar_Widths then vim.schedule(_G.Fix_Sidebar_Widths) end
 end, { noremap = true, silent = true, desc = "Toggle File Explorer" })
 
@@ -3651,6 +4130,7 @@ local function docx_reader(args)
 
   local pdf_path = vim.fn.fnamemodify(path, ":r") .. ".pdf"
   show_preview(args.buf, path, { "Converting " .. name .. " to PDF..." })
+  local progress = Tool_Progress.start({ client = "libreoffice", title = "Converting to PDF", message = name })
   -- LibreOffice overwrites an existing output file of the same name without prompting
   vim.system(
     { soffice, "--headless", "--convert-to", "pdf", "--outdir", vim.fn.fnamemodify(path, ":h"), path },
@@ -3658,9 +4138,11 @@ local function docx_reader(args)
     function(res)
       vim.schedule(function()
         if res.code ~= 0 or vim.fn.filereadable(pdf_path) == 0 then
+          progress:fail({ title = "PDF conversion failed: " .. name })
           vim.notify("PDF conversion failed: " .. vim.trim(res.stderr or ""), vim.log.levels.ERROR)
           return reject_binary(args.buf, path, "Conversion failed")
         end
+        progress:finish({ title = "Converted " .. name .. " to PDF" })
         -- show_preview already marked the placeholder bufhidden=wipe, so it's dropped once we navigate off it.
         -- keepalt avoids adding another alternate-buffer hop on top of the one already left behind by
         -- show_preview's rename (renaming a buffer leaves an unlisted stub for its old name, see :help :file).
@@ -3754,8 +4236,68 @@ vim.api.nvim_create_autocmd("TermOpen", {
 vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "TermEnter" }, { group = term_group, callback = term_enter })
 vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, { group = term_group, callback = term_leave })
 
+-- Ctrl+Click a URL in a terminal buffer to open it. The host terminal only sees nvim's redraw, so
+-- its own link detection never fires; the click position is mapped back to buffer text instead.
+-- Rows filled to the window width are treated as one soft-wrapped line so long URLs open whole.
+local function url_at_mouse()
+  local pos = vim.fn.getmousepos()
+  if pos.winid == 0 or pos.line == 0 or pos.column == 0 then return end
+  local buf = vim.api.nvim_win_get_buf(pos.winid)
+  if vim.bo[buf].buftype ~= "terminal" then return end
+  local width = vim.api.nvim_win_get_width(pos.winid)
+  local function row(n) return vim.api.nvim_buf_get_lines(buf, n - 1, n, false)[1] end
+  local function full(n) local l = row(n); return l ~= nil and vim.fn.strdisplaywidth(l) >= width end
+
+  local first, last = pos.line, pos.line
+  while first > 1 and full(first - 1) do first = first - 1 end
+  while full(last) and row(last + 1) do last = last + 1 end
+
+  local text, offset = "", 0
+  for n = first, last do
+    if n == pos.line then offset = #text + pos.column end
+    text = text .. row(n)
+  end
+
+  local init = 1
+  while true do
+    local s, e = text:find("%a[%w+.-]*://[^%s<>\"'`]+", init)
+    if not s then return end
+    local url = text:sub(s, e):gsub("[.,;:!?]+$", "")
+    -- Drop a closing bracket the URL does not own, e.g. "(see https://x.com/a)"
+    for open, close in pairs({ ["("] = ")", ["["] = "]", ["{"] = "}" }) do
+      local _, opens = url:gsub("%" .. open, "")
+      local _, closes = url:gsub("%" .. close, "")
+      while closes > opens and url:sub(-1) == close do
+        url = url:sub(1, -2)
+        closes = closes - 1
+      end
+    end
+    if offset >= s and offset <= s + #url - 1 then return url end
+    init = e + 1
+  end
+end
+
+local function open_url_at_mouse()
+  local url = url_at_mouse()
+  if url then
+    vim.ui.open(url)
+  else
+    vim.notify("No URL under cursor", vim.log.levels.INFO)
+  end
+end
+vim.api.nvim_create_autocmd("TermOpen", {
+  group = term_group,
+  callback = function(args)
+    vim.keymap.set({ 'n', 't' }, '<C-LeftMouse>', open_url_at_mouse, { buffer = args.buf, silent = true, desc = "Open URL under mouse" })
+    vim.keymap.set({ 'n', 't' }, '<C-LeftRelease>', '<Nop>', { buffer = args.buf, silent = true })
+  end,
+})
+
 -- Terminal mode: exit and split shortcuts
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { noremap = true, silent = true })
+-- Alt+k / Alt+j: step through shell history (send Up / Down to the running shell)
+vim.keymap.set('t', '<M-k>', '<Up>',   { noremap = true, silent = true, desc = "Previous command (Terminal)" })
+vim.keymap.set('t', '<M-j>', '<Down>', { noremap = true, silent = true, desc = "Next command (Terminal)" })
 vim.keymap.set('n', '<leader>th', ':ToggleTerm direction=horizontal<CR>', { noremap = true, silent = true, desc = "Terminal (Horizontal)" })
 vim.keymap.set('n', '<leader>tv', ':ToggleTerm direction=vertical size=40<CR>', { noremap = true, silent = true, desc = "Terminal (Vertical)" })
 

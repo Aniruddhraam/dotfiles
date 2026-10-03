@@ -54,6 +54,8 @@ Servers are enabled in section 3 and must be installed and on `PATH`. The config
 
 Format-on-save is on (via conform.nvim) and falls back to the LSP formatter. Formatter errors show up as diagnostics and quickfix entries. Use `:ConformErrors` or `<leader>ce` to review them.
 
+oxfmt follows the nearest formatting config between the file and its project root. That can be an oxfmt config (`.oxfmtrc.json`, `.oxfmtrc.jsonc`, `oxfmt.config.ts` and the other `oxfmt.config.*` variants) or a Prettier config (`.prettierrc*`, `prettier.config.*`, or a `"prettier"` key in `package.json`). Prettier configs are converted with oxfmt's own `--migrate=prettier` into a cache directory, so nothing is written to the project. Projects with neither use the global style in `formatters/oxfmt.json` (oxfmt's defaults: 2-space indent, double quotes, 100 columns). A project's `.editorconfig` still sets indentation, line width and line endings on top of the global style.
+
 ## Plugins
 
 | Area | Plugins |
@@ -72,6 +74,7 @@ Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvi
 
 - **Projects and sessions.** The dashboard and auto-session save and restore tabs and buffers per project. `<leader>p` restores an active project, and `<leader>fp` opens a recent one in NvimTree.
 - **Sidebar layout.** NvimTree and Aerial keep fixed widths and never take over the window when the last file closes. `<M-e>` and `<M-S-e>` cycle focus between the tree, the code window and the outline.
+- **Tool progress.** Work that never arrives as LSP progress shows in the bottom-right corner in the same style: formatter runs (black, oxfmt, rustfmt and the rest), slow diagnostic re-checks after an edit (vtsls, basedpyright, texlab), jupytext and LibreOffice conversions, NvimTree background deletes, and lazy.nvim's update check.
 - **Notebooks.** `.ipynb` files open as `py:percent` scripts through jupytext and are converted back on save. Molten runs cells inline.
 - **Binary and large files.** Known binary types open in the OS viewer, and data files (parquet and similar) show a text preview. Unknown binaries are refused after a NUL-byte check. Files over 2 MB skip syntax, treesitter and LSP.
 - **External changes.** Files changed or deleted on disk are detected on focus, buffer switch and idle, without the blocking E211 prompt.
