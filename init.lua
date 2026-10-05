@@ -3066,6 +3066,7 @@ vim.opt.shiftwidth = 4
 vim.opt.softtabstop = 4
 vim.opt.expandtab = true
 vim.opt.smarttab = true
+-- No cursor blinking in any mode; Terminal mode gets a vertical bar (`ver25`) instead of a block.
 vim.opt.guicursor = "a:blinkon0,t:ver25-TermCursor"
 vim.opt.confirm = true
 vim.opt.clipboard = "unnamedplus"
@@ -4273,6 +4274,7 @@ vim.api.nvim_create_autocmd("BufReadPre", {
     local path = vim.fn.fnamemodify(args.match, ":p")
     -- pdfpreview.nvim handles PDFs with its own BufReadCmd.
     if path:match("%.pdf$") then return end
+    -- image.nvim renders image formats itself.
     if ext_image[(path:match("%.([^./]+)$") or ""):lower()] then return end
     local stat = vim.uv.fs_stat(path)
     if not stat or stat.type ~= "file" then return end
