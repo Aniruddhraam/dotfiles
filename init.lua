@@ -314,13 +314,15 @@ require("lazy").setup({
         if vim.v.this_session ~= "" or _G.Has_Session_Files() then
           require("auto-session").save_session(root)
         end
-        -- Stop LSP servers when leaving a project. Remove this loop to keep them running.
-        for _, client in ipairs(vim.lsp.get_clients()) do client:stop() end
+        -- Delete buffers before stopping LSP servers: each bdelete sends didClose, and texlab exits
+        -- with code 1 on any message that arrives after it has received `shutdown`.
         for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
           if vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].buflisted then
             vim.cmd("bdelete! " .. bufnr)
           end
         end
+        -- Stop LSP servers when leaving a project. Remove this loop to keep them running.
+        for _, client in ipairs(vim.lsp.get_clients()) do client:stop() end
         -- Clear the session name so the next project does not overwrite this one.
         vim.v.this_session = ""
         _G._project_root = nil
