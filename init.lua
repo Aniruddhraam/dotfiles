@@ -3064,7 +3064,7 @@ vim.opt.shiftwidth = 4
 vim.opt.softtabstop = 4
 vim.opt.expandtab = true
 vim.opt.smarttab = true
-vim.opt.guicursor = "a:blinkon0"
+vim.opt.guicursor = "a:blinkon0,t:ver25-TermCursor"
 vim.opt.confirm = true
 vim.opt.clipboard = "unnamedplus"
 vim.opt.keymodel = "startsel,stopsel"
@@ -4262,12 +4262,16 @@ vim.api.nvim_create_autocmd("BufReadCmd", { group = binary_group, pattern = "*.d
 -- Unknown extensions: check the first 8 KB for NUL bytes. This also applies the large-file guard to
 -- text files.
 local LARGE_FILE_BYTES = 2 * 1024 * 1024
+-- Image formats that image.nvim renders (see its hijack_file_patterns). Their headers contain NUL
+-- bytes, so the sniff below would reject them before image.nvim gets a chance to display them.
+local ext_image = ext_set({ "png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "tiff", "ico" })
 vim.api.nvim_create_autocmd("BufReadPre", {
   group = binary_group,
   callback = function(args)
     local path = vim.fn.fnamemodify(args.match, ":p")
     -- pdfpreview.nvim handles PDFs with its own BufReadCmd.
     if path:match("%.pdf$") then return end
+    if ext_image[(path:match("%.([^./]+)$") or ""):lower()] then return end
     local stat = vim.uv.fs_stat(path)
     if not stat or stat.type ~= "file" then return end
     if is_binary_content(path) then
