@@ -1,21 +1,8 @@
-# Neovim and Zsh Configuration
+# Neovim Configuration
 
-Two dotfiles in one repo: a single-file Neovim setup and a Zsh setup. The Neovim setup is built on [lazy.nvim](https://github.com/folke/lazy.nvim). It targets **Neovim 0.12+** and is tuned for the [Ghostty](https://ghostty.org) terminal on Linux. Parts of it also handle macOS and Windows paths. The Zsh setup (`zshrc`) is built on [Oh My Zsh](https://ohmyz.sh) and [Powerlevel10k](https://github.com/romkatv/powerlevel10k), and is written for Linux.
+A single-file Neovim setup built on [lazy.nvim](https://github.com/folke/lazy.nvim). It targets **Neovim 0.12+** and is tuned for the [Ghostty](https://ghostty.org) terminal on Linux. Parts of it also handle macOS and Windows paths.
 
-## Repository layout
-
-| File | Purpose |
-| --- | --- |
-| `init.lua` | The whole Neovim configuration, split into numbered sections (see below) |
-| `after/ftplugin/python.lua` | Python buffer options (4-space indent, conform `formatexpr`) |
-| `formatters/oxfmt.json` | Global oxfmt style, used when a project has no oxfmt or Prettier config |
-| `lazy-lock.json` | Pinned plugin versions |
-| `zshrc` | The Zsh configuration. Link it to `~/.zshrc` (see [Zsh configuration](#zsh-configuration)) |
-| `p10k.zsh` | The Powerlevel10k prompt configuration. Link it to `~/.p10k.zsh` |
-
-## Neovim configuration
-
-`init.lua` is split into numbered sections:
+The whole config lives in `init.lua`, split into numbered sections:
 
 | Section | Contents |
 | --- | --- |
@@ -28,14 +15,16 @@ Two dotfiles in one repo: a single-file Neovim setup and a Zsh setup. The Neovim
 | 6 | VS Code-style copy / cut / paste |
 | 7 | Terminals (toggleterm, lazygit) |
 
-### Installation
+`after/ftplugin/python.lua` holds the Python buffer options (4-space indent, conform `formatexpr`). `lazy-lock.json` pins plugin versions.
+
+## Installation
 
 ```sh
 git clone <repo-url> ~/.config/nvim
 nvim
 ```
 
-lazy.nvim bootstraps itself on first launch and installs the plugins. Run `:checkhealth` afterwards to see which external tools are missing. The `zshrc` in the same clone is installed separately; see [Zsh configuration](#zsh-configuration).
+lazy.nvim bootstraps itself on first launch and installs the plugins. Run `:checkhealth` afterwards to see which external tools are missing.
 
 ### Requirements
 
@@ -67,7 +56,7 @@ Format-on-save is on (via conform.nvim) and falls back to the LSP formatter. For
 
 oxfmt follows the nearest formatting config between the file and its project root. That can be an oxfmt config (`.oxfmtrc.json`, `.oxfmtrc.jsonc`, `oxfmt.config.ts` and the other `oxfmt.config.*` variants) or a Prettier config (`.prettierrc*`, `prettier.config.*`, or a `"prettier"` key in `package.json`). Prettier configs are converted with oxfmt's own `--migrate=prettier` into a cache directory, so nothing is written to the project. Projects with neither use the global style in `formatters/oxfmt.json` (oxfmt's defaults: 2-space indent, double quotes, 100 columns). A project's `.editorconfig` still sets indentation, line width and line endings on top of the global style.
 
-### Plugins
+## Plugins
 
 | Area | Plugins |
 | --- | --- |
@@ -81,7 +70,7 @@ oxfmt follows the nearest formatting config between the file and its project roo
 
 Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvim` only loads when an image file is opened. `pdfpreview.nvim` loads at startup so it can take over `.pdf` buffers.
 
-### Key features
+## Key features
 
 - **Projects and sessions.** The dashboard and auto-session save and restore tabs and buffers per project. `<leader>p` restores an active project, and `<leader>fp` opens a recent one in NvimTree.
 - **Sidebar layout.** NvimTree and Aerial keep fixed widths and never take over the window when the last file closes. `<M-e>` and `<M-S-e>` cycle focus between the tree, the code window and the outline.
@@ -93,7 +82,7 @@ Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvi
 - **Terminal buffers.** Terminals hide editor chrome and keep a large scrollback. A mouse drag selects and copies to the system clipboard. Hold Shift while dragging to use Ghostty's own selection instead. `Ctrl+Click` opens a URL, including one that wraps across lines.
 - **VS Code-style editing.** Shift+motion keys select, `Ctrl+C/X/V` copy, cut and paste, `Ctrl+Z` undoes and `Ctrl+S` saves. Alt+h/j/k/l move the cursor without leaving Insert mode, `Alt+u` escapes, and `Alt+b` / `Alt+Backspace` delete backwards without dropping to Normal mode.
 
-### Keymaps
+## Keymaps
 
 The leader key is `Space`. Press it and wait to see every mapping in which-key. The most useful ones:
 
@@ -137,7 +126,7 @@ Debugging (Go/delve) uses `<leader>d…`:
 
 Search is literal by default: `/` and `?` are prefixed with `\V`.
 
-### Commands
+## Commands
 
 | Command | Description |
 | --- | --- |
@@ -147,7 +136,7 @@ Search is literal by default: `/` and `?` are prefixed with `\V`.
 | `:CleanDeletedBuffers` | Close unmodified buffers whose file was deleted on disk |
 | `:ClearProjects` | Remove the legacy project history file |
 
-### Customising
+## Customising
 
 - Add or remove a plugin in the `require("lazy").setup({ ... })` table (section 2).
 - Add a language server with a `vim.lsp.config("name", { ... })` block and a matching `vim.lsp.enable("name")` (section 3), and a formatter in `formatters_by_ft` in the conform spec.
@@ -155,7 +144,7 @@ Search is literal by default: `/` and `?` are prefixed with `\V`.
 - Update plugins with `:Lazy update` (or `<leader>U`), and commit `lazy-lock.json` to keep installs reproducible.
 - Follow the comment conventions below when adding code.
 
-#### Comment conventions
+### Comment conventions
 
 Comments in `init.lua` and `after/ftplugin/python.lua` follow one style:
 
@@ -166,97 +155,9 @@ Comments in `init.lua` and `after/ftplugin/python.lua` follow one style:
 - Put long explanations above the code rather than trailing it. Short trailing comments are fine for a single option.
 - Number steps (`1.`, `2.`) only when the order matters.
 
-## Zsh configuration
-
-`zshrc` is a single file that replaces `~/.zshrc`. It sets up Oh My Zsh with Powerlevel10k, fzf-based completion and history, modern CLI replacements, and a few helper functions. Everything that depends on an optional tool is guarded with `command -v`, so a missing tool skips its block instead of breaking the shell.
-
-### Zsh installation
-
-```sh
-ln -sf ~/.config/nvim/zshrc ~/.zshrc
-ln -sf ~/.config/nvim/p10k.zsh ~/.p10k.zsh
-chsh -s "$(command -v zsh)"
-exec zsh
-```
-
-Install the [requirements](#zsh-requirements) first. `zshrc` sources `~/.p10k.zsh` when it exists, so the prompt looks the same on first launch. Run `p10k configure` to change it.
-
-### Zsh requirements
-
-- `zsh`, [Oh My Zsh](https://ohmyz.sh), and the [Powerlevel10k](https://github.com/romkatv/powerlevel10k) theme
-- Oh My Zsh custom plugins: `fzf-tab`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, and `zsh-completions`
-- [`fzf`](https://github.com/junegunn/fzf) and [`zoxide`](https://github.com/ajeetdsouza/zoxide). Both are initialised through a cache (see below).
-- Optional: `fd`, `bat`, `eza`, `rg` (previews and aliases), `lazygit`, `kitten` or `chafa` (`icat`), `uv`, `pnpm`
-- Optional, for `extract` and `compress`: multithreaded archive tools such as `pigz`, `lbzip2`, `zstd`, `7z`. Each falls back to the standard tool when missing.
-- Optional, for the DNS helpers: NetworkManager (`nmcli`), `dnscrypt-proxy`, `dig`, and `sudo`
-
-See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this file for the install commands.
-
-### Zsh sections
-
-`zshrc` has no numbering, but it reads top to bottom in this order:
-
-| Part | Contents |
-| --- | --- |
-| Prompt | Powerlevel10k instant prompt, kept at the very top |
-| Environment | `PATH` (`~/.local/bin`, `~/go/bin`, `~/.cargo/bin`), Oh My Zsh path and theme, `EDITOR` / `VISUAL` set to `nvim` |
-| History and options | 50,000 entries in `~/.zsh_history`, shared across terminals, duplicates removed, `AUTO_CD`, `AUTO_PUSHD`, no beep |
-| Plugins | `git`, `fzf-tab`, `zsh-autosuggestions` (async), `sudo`, `copypath`, `copyfile`, `zsh-syntax-highlighting`, plus `zsh-completions` on `fpath`. The per-startup `compaudit` scan is skipped. |
-| fzf | `fd` as the file source, `bat` and `eza` previews, and the fzf key bindings loaded through `_cache_eval` |
-| Aliases | Modern CLI replacements and shortcuts (see below) |
-| Completion | Case-insensitive and partial matching, fzf-tab renders the menu, completions cached in `~/.cache/zsh` |
-| Archives | The `extract` and `compress` functions, with tab completion for `compress` |
-| Bytecode | `~/.zshrc` and `~/.p10k.zsh` are compiled with `zcompile` whenever they change |
-| Tooling | `pnpm` on `PATH`, the DNS mode helpers, and the `uv` wrapper |
-| Key bindings | `Alt+j` / `Alt+k` history search |
-| zoxide | Initialised last, replacing `cd` |
-
-`_cache_eval` caches the output of slow `eval "$(tool init)"` calls (fzf, zoxide) under `~/.cache/zsh` and regenerates it when the tool's binary changes. This keeps startup fast.
-
-### Aliases and functions
-
-| Name | Description |
-| --- | --- |
-| `ls`, `ll`, `la`, `lt` | `eza` with icons (`ll` adds git status, `lt` is a two-level tree). Needs `eza`. |
-| `cat`, `bcat` | `bat` without a pager. `man` pages also render through `bat`. Needs `bat`. |
-| `grep` | `rg`. Needs `rg`. |
-| `v`, `vim` | `nvim` |
-| `lg` | `lazygit` |
-| `icat` | Show an image in the terminal through `kitten icat`, or `chafa` as a fallback |
-| `sudo` | Defined with a trailing space so aliases still expand after it |
-| `dfh`, `duh`, `ports` | `df -h`, a sorted one-level `du -h`, and `ss -tulpn` |
-| `reload` | Restart the shell with `exec zsh` |
-| `mkcd <dir>` | Create a directory and enter it |
-| `cd`, `cdi` | zoxide's jump commands replace `cd` (`--cmd cd`); `cdi` picks a directory interactively |
-| `extract <file>...` | Unpack almost any archive type, using the multithreaded tool when it is installed |
-| `compress <type> <path> [level]` | Create an archive, e.g. `compress tar.zst mydir -19`. Press `Tab` to list types and levels. |
-| `dnsplain` / `portal-mode` | Point `/etc/resolv.conf` at the network's own DHCP DNS, for captive-portal logins |
-| `dnsodoh` / `secure-mode` | Switch back to the local `dnscrypt-proxy` (ODoH) resolver and check that it resolves |
-| `dnsstatus` | Show the active DNS mode and time a lookup |
-| `uv add <pkg>` | Outside any project, first creates a bare `pyproject.toml`, then runs the normal `uv add`. Everything else passes straight through. |
-
-The DNS helpers rewrite `/etc/resolv.conf` with `sudo`. They assume `dnscrypt-proxy` runs in both modes and only the resolver file changes.
-
-### Zsh key bindings
-
-| Key | Action |
-| --- | --- |
-| `Ctrl+R` / `Ctrl+T` / `Alt+C` | fzf history, file and directory search |
-| `Alt+j` / `Alt+k` | Down / up through history, matching what is already typed (same as the Neovim mappings) |
-| `Tab` | fzf-tab completion menu. `<` and `>` switch completion groups. |
-
-### Zsh customising
-
-- Change the prompt with `p10k configure` or by editing `p10k.zsh` (linked to `~/.p10k.zsh`).
-- Add or remove Oh My Zsh plugins in the `plugins=( ... )` array. Keep `fzf-tab` before `zsh-autosuggestions` and `zsh-syntax-highlighting`, since it must load before plugins that wrap ZLE widgets.
-- `alias grep="rg"` changes `grep`'s behaviour for interactive use. Delete the alias, or call `command grep`, when you need the real one.
-- Cached `tool init` output lives in `~/.cache/zsh`. Delete a file there to force it to regenerate.
-- The `PNPM_HOME` block holds an absolute path written by the pnpm installer. Change it if the home directory differs.
-- The commented-out options near the top of the file are Oh My Zsh's stock template. The sections after them are headed by `# ====` banners.
-
 ## Installing dependencies (Linux)
 
-This section covers every item from [Requirements](#requirements), [Language servers and formatters](#language-servers-and-formatters) and [Zsh requirements](#zsh-requirements). It is written for Fedora. Each tool uses the fastest source available: **native compiled binaries** (Rust, Go, C/C++) from `dnf`, `cargo` or `go install`, and JavaScript tooling from `pnpm`. Where a tool has a compiled replacement for a slower default, that one is used.
+This section covers every item from [Requirements](#requirements) and [Language servers and formatters](#language-servers-and-formatters). It is written for Fedora. Each tool uses the fastest source available: **native compiled binaries** (Rust, Go, C/C++) from `dnf`, `cargo` or `go install`, and JavaScript tooling from `pnpm`. Where a tool has a compiled replacement for a slower default, that one is used.
 
 ### Faster tools than the defaults
 
@@ -284,30 +185,6 @@ sudo dnf install -y git neovim gcc make \
 ```
 
 `clang-tools-extra` provides `clangd` and `clang-format`. Install a Nerd Font separately, from your font package or by unpacking it into `~/.local/share/fonts` and running `fc-cache -f`.
-
-### Zsh and shell tools (`dnf` and `git`)
-
-Package names below are for Fedora and may differ elsewhere.
-
-```sh
-sudo dnf install -y zsh bat eza zoxide chafa \
-    pigz lbzip2 zstd lz4 lzop brotli p7zip p7zip-plugins
-```
-
-Install Oh My Zsh without letting it overwrite `~/.zshrc`, then clone the theme and plugins into its custom directory:
-
-```sh
-RUNZSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-
-ZSH_CUSTOM=${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}
-git clone --depth=1 https://github.com/romkatv/powerlevel10k "$ZSH_CUSTOM/themes/powerlevel10k"
-git clone --depth=1 https://github.com/Aloxaf/fzf-tab "$ZSH_CUSTOM/plugins/fzf-tab"
-git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
-git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
-git clone --depth=1 https://github.com/zsh-users/zsh-completions "$ZSH_CUSTOM/plugins/zsh-completions"
-```
-
-`fzf`, `fd` and `rg` come from the [system packages](#system-packages-dnf) above. `uv` and `pnpm` are covered in their own sections. The DNS helpers need `dnscrypt-proxy` configured separately; they only switch `/etc/resolv.conf`.
 
 ### Rust toolchain (`rustup` and `cargo`)
 
@@ -368,12 +245,12 @@ Update everything with `uv tool upgrade --all`. If `jupytext` is missing, the co
 ### Verify
 
 ```sh
-for t in nvim git zsh fzf fd rg bat eza zoxide lazygit magick soffice clangd clang-format \
+for t in nvim git fzf fd rg lazygit magick soffice clangd clang-format \
          rust-analyzer rustfmt gopls gofmt dlv texlab taplo \
          vtsls basedpyright-langserver oxlint oxfmt black jupytext; do
   command -v "$t" >/dev/null && echo "ok      $t" || echo "MISSING $t"
 done
 ```
 
-Then open Neovim and run `:checkhealth` and `:Lazy`. In a new Zsh session, `reload` should start without errors and `ll` should list files with icons.
+Then open Neovim and run `:checkhealth` and `:Lazy`.
 
