@@ -8,6 +8,7 @@ Two dotfiles in one repo: a single-file Neovim setup and a Zsh setup. The Neovim
 | --- | --- |
 | `init.lua` | The whole Neovim configuration, split into numbered sections (see below) |
 | `after/ftplugin/python.lua` | Python buffer options (4-space indent, conform `formatexpr`) |
+| `after/indent/python.lua` | Python indentation that uses treesitter to ignore brackets and `#` inside strings and comments |
 | `formatters/oxfmt.json` | Global oxfmt style, used when a project has no oxfmt or Prettier config |
 | `lazy-lock.json` | Pinned plugin versions |
 | `zshrc` | The Zsh configuration. Link it to `~/.zshrc` (see [Zsh configuration](#zsh-configuration)) |
@@ -87,6 +88,7 @@ Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvi
 - **Sidebar layout.** NvimTree and Aerial keep fixed widths and never take over the window when the last file closes. `<M-e>` and `<M-S-e>` cycle focus between the tree, the code window and the outline.
 - **Tool progress.** Work that never arrives as LSP progress shows in the bottom-right corner in the same style: formatter runs (black, oxfmt, rustfmt and the rest), slow diagnostic re-checks after an edit (vtsls, basedpyright, texlab), jupytext and LibreOffice conversions, NvimTree background deletes, and lazy.nvim's update check.
 - **Notebooks.** `.ipynb` files open as `py:percent` scripts through jupytext and are converted back on save. Molten runs cells inline.
+- **Python indentation.** Enter indents like Vim's own Python indent: one level after a colon, a hanging indent inside brackets, and a dedent after `return`, `pass`, `break`, `continue` and `raise`. Brackets and `#` inside strings and comments are ignored, including in a docstring that is not closed yet, so `if c == "(":` no longer pushes the next line under the `(`.
 - **PDF and Word documents.** PDFs render page by page inside the buffer through the Kitty graphics protocol: `j`/`k` scroll, `h`/`l` pan, `+`/`-` zoom, `0` fits the width, `{n}G` jumps to a page and `q` closes. A `.docx` file offers to convert to PDF with LibreOffice for the same preview, or to open in the OS viewer. This needs a terminal that supports the Kitty graphics protocol, such as Ghostty.
 - **Binary and large files.** Known binary types open in the OS viewer, and data files (parquet and similar) show a text preview. Unknown binaries are refused after a NUL-byte check. Files over 2 MB skip syntax, treesitter and LSP.
 - **External changes.** Files changed or deleted on disk are detected on focus, buffer switch and idle, without the blocking E211 prompt.
@@ -157,7 +159,7 @@ Search is literal by default: `/` and `?` are prefixed with `\V`.
 
 #### Comment conventions
 
-Comments in `init.lua` and `after/ftplugin/python.lua` follow one style:
+Comments in `init.lua` and the `after/` files follow one style:
 
 - Explain *why*, not what the next line already says.
 - Use complete sentences: capitalised, ending in a period. Plugin and section titles are short labels without a period.

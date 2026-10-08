@@ -1,5 +1,6 @@
 -- Python buffer options: Black-style 4-space indentation using spaces, never tabs.
--- Hanging-indent rules live in `vim.g.python_indent` in init.lua.
+-- Hanging-indent rules live in `vim.g.python_indent` in init.lua, and after/indent/python.lua
+-- applies them.
 vim.opt_local.expandtab = true
 vim.opt_local.shiftwidth = 4
 vim.opt_local.tabstop = 4
