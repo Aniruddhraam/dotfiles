@@ -4675,6 +4675,11 @@ function _G.Term_New()
   local max_id = 0
   for _, t in ipairs(terms) do if t.id > max_id then max_id = t.id end; if t:is_open() then t:close() end end
   vim.cmd((max_id + 1) .. "ToggleTerm direction=float")
+  -- Closing the previous float runs stopinsert!, so Terminal mode ends once this mapping returns
+  -- and the startinsert from on_open is dropped. Re-enter Terminal mode after that has happened.
+  vim.schedule(function()
+    if vim.bo.buftype == "terminal" then vim.cmd("startinsert!") end
+  end)
 end
 
 function _G.Term_Next()
