@@ -1042,34 +1042,58 @@ require("lazy").setup({
 
       _G.Ensure_Code_Window = ensure_code_window
 
-      --- Delete a file or directory asynchronously, in the background.
-      ---@param target_path string Path to delete
-      ---@param on_done? fun(success: boolean) Called when the delete finishes
+      --- Build the command that moves a path to the system trash. Never falls back to a permanent delete.
+      ---@param target_path string Path to trash
+      ---@param is_dir boolean Whether the path is a directory
+      ---@return string[]? cmd Nil when no trash tool is available
+      local function trash_command(target_path, is_dir)
+        if is_win then
+          local ps_path = target_path:gsub("/", "\\"):gsub("'", "''")
+          local method = is_dir and "DeleteDirectory" or "DeleteFile"
+          local script = string.format(
+            "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::%s('%s', 'OnlyErrorDialogs', 'SendToRecycleBin')",
+            method, ps_path
+          )
+          return { "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script }
+        elseif vim.fn.has("mac") == 1 then
+          if vim.fn.executable("trash") == 1 then return { "trash", target_path } end
+          return {
+            "osascript",
+            "-e", "on run argv",
+            "-e", 'tell application "Finder" to delete (POSIX file (item 1 of argv))',
+            "-e", "end run",
+            target_path,
+          }
+        end
+        if vim.fn.executable("gio") == 1 then return { "gio", "trash", target_path } end
+        if vim.fn.executable("trash-put") == 1 then return { "trash-put", target_path } end
+        if vim.fn.executable("trash") == 1 then return { "trash", target_path } end
+        return nil
+      end
+
+      --- Move a file or directory to the system trash asynchronously, in the background.
+      ---@param target_path string Path to trash
+      ---@param on_done? fun(success: boolean) Called when the move finishes
       local function async_delete_single(target_path, on_done)
         if not target_path or target_path == "" then return end
         local is_dir = vim.fn.isdirectory(target_path) == 1
-        local cmd = {}
+        local cmd = trash_command(target_path, is_dir)
 
-        if is_win then
-          local win_path = target_path:gsub("/", "\\")
-          if is_dir then
-            cmd = { "cmd.exe", "/c", "rmdir", "/s", "/q", win_path }
-          else
-            cmd = { "cmd.exe", "/c", "del", "/f", "/q", win_path }
-          end
-        else
-          cmd = { "rm", "-rf", target_path }
+        if not cmd then
+          vim.notify("No trash tool found (install glib's `gio` or `trash-cli`); nothing was deleted.", vim.log.levels.ERROR, { title = "Async Delete" })
+          if on_done then on_done(false) end
+          return
         end
 
         local name = vim.fn.fnamemodify(target_path, ":t")
         if name == "" then name = target_path end
 
-        local progress = _G.Tool_Progress.start({ client = vim.fn.fnamemodify(cmd[1], ":t:r"), title = "Deleting", message = name })
+        local progress = _G.Tool_Progress.start({ client = vim.fn.fnamemodify(cmd[1], ":t:r"), title = "Trashing", message = name })
 
         vim.system(cmd, {}, function(obj)
           vim.schedule(function()
             if obj.code == 0 then
-              progress:finish({ title = "Deleted " .. name })
+              progress:finish({ title = "Trashed " .. name })
               -- Wipe any open buffers for the deleted path.
               for _, buf in ipairs(vim.api.nvim_list_bufs()) do
                 if vim.api.nvim_buf_is_valid(buf) then
@@ -1080,9 +1104,9 @@ require("lazy").setup({
                 end
               end
             else
-              progress:fail({ title = "Delete failed: " .. name })
+              progress:fail({ title = "Trash failed: " .. name })
               local err = (obj.stderr and obj.stderr ~= "") and obj.stderr or ("Exit code " .. tostring(obj.code))
-              vim.notify(string.format("Failed to delete '%s': %s", name, vim.trim(err)), vim.log.levels.ERROR, { title = "Async Delete" })
+              vim.notify(string.format("Failed to trash '%s': %s", name, vim.trim(err)), vim.log.levels.ERROR, { title = "Async Delete" })
             end
             if on_done then on_done(obj.code == 0) end
           end)
@@ -1143,9 +1167,9 @@ require("lazy").setup({
         if #targets == 1 then
           local name = vim.fn.fnamemodify(targets[1], ":t")
           local is_dir = vim.fn.isdirectory(targets[1]) == 1
-          prompt_msg = string.format("Delete %s '%s' in background? [y/N]: ", is_dir and "folder" or "file", name)
+          prompt_msg = string.format("Move %s '%s' to trash? [y/N]: ", is_dir and "folder" or "file", name)
         else
-          prompt_msg = string.format("Delete %d marked items in background? [y/N]: ", #targets)
+          prompt_msg = string.format("Move %d marked items to trash? [y/N]: ", #targets)
         end
 
         vim.ui.input({ prompt = prompt_msg }, function(choice)
@@ -3492,7 +3516,7 @@ vim.api.nvim_create_user_command("AsyncDelete", function(opts)
   end
   local name = vim.fn.fnamemodify(path, ":t")
   local is_dir = vim.fn.isdirectory(path) == 1
-  local prompt_msg = string.format("Delete %s '%s' in background? [y/N]: ", is_dir and "folder" or "file", name)
+  local prompt_msg = string.format("Move %s '%s' to trash? [y/N]: ", is_dir and "folder" or "file", name)
   vim.ui.input({ prompt = prompt_msg }, function(choice)
     if choice and (choice:lower() == "y" or choice:lower() == "yes") then
       if _G.Async_Delete_Path then
