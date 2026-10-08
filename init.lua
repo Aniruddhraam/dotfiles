@@ -2426,19 +2426,18 @@ require("lazy").setup({
     opts = {
       symbol = "│",
       options = { try_as_border = true },
-      draw = {
-        delay = 50,
-        animation = function(s, n)
-          local ok, mini = pcall(require, "mini.indentscope")
-          if ok and mini.gen_animation then
-            return mini.gen_animation.quadratic({ easing = "out", duration = 120, unit = "step" })(s, n)
-          end
-          return 10
-        end,
-      },
+      draw = { delay = 50 },
     },
     config = function(_, opts)
-      require("mini.indentscope").setup(opts)
+      local indentscope = require("mini.indentscope")
+      -- The line grows one row per step (n steps), easing out (quadratic: step s waits in
+      -- proportion to s). The sweep takes 12ms per step, clamped to 120-220ms: long scopes get a
+      -- visible glide, short ones finish before their few rows look like discrete jumps.
+      opts.draw.animation = function(s, n)
+        local total = math.min(220, math.max(120, 12 * n))
+        return total * s / (n * (n + 1) / 2)
+      end
+      indentscope.setup(opts)
 
       vim.api.nvim_create_autocmd("FileType", {
         pattern = {
