@@ -3814,6 +3814,22 @@ local pane_focus_group = vim.api.nvim_create_augroup("PaneFocusCursorline", { cl
 vim.api.nvim_create_autocmd({ "WinEnter", "BufWinEnter" }, { group = pane_focus_group, callback = set_pane_cursorline(true) })
 vim.api.nvim_create_autocmd("WinLeave", { group = pane_focus_group, callback = set_pane_cursorline(false) })
 
+-- NvimTree is never typed into, so Insert mode there only blocks its keys. It stays on when the
+-- tree is focused from Insert mode (Alt+e, a mouse click) or when a deferred startinsert lands on
+-- it (closing the last terminal). The tree's prompts (create, rename, delete, live filter) are
+-- floating buffers with their own filetypes, so they keep Insert mode.
+local tree_insert_group = vim.api.nvim_create_augroup("NvimTreeNoInsert", { clear = true })
+vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "InsertEnter" }, {
+  group = tree_insert_group,
+  callback = function()
+    if vim.bo.filetype ~= "NvimTree" then return end
+    -- Check once the mapping or click that moved focus has finished.
+    vim.schedule(function()
+      if vim.bo.filetype == "NvimTree" and vim.api.nvim_get_mode().mode:match("^[iR]") then vim.cmd("stopinsert") end
+    end)
+  end,
+})
+
 -- Smart close
 local function get_normal_window_count()
   local count = 0
