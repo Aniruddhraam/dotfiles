@@ -5,6 +5,14 @@ if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]
   source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"
 fi
 
+# Run /etc/zshrc (and with it every /etc/profile.d script) now that the instant prompt
+# is on screen; ~/.zshenv held it back. It's sourced live, so Fedora updates still apply.
+if (( ${+_defer_global_zshrc} )); then
+  unset _defer_global_zshrc
+  setopt GLOBAL_RCS
+  [[ -r /etc/zshrc ]] && source /etc/zshrc
+fi
+
 # If you come from bash you might have to change your $PATH.
 export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
 

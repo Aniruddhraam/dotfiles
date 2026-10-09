@@ -12,6 +12,7 @@ Two dotfiles in one repo: a single-file Neovim setup and a Zsh setup. The Neovim
 | `formatters/oxfmt.json` | Global oxfmt style, used when a project has no oxfmt or Prettier config |
 | `lazy-lock.json` | Pinned plugin versions |
 | `zshrc` | The Zsh configuration. Link it to `~/.zshrc` (see [Zsh configuration](#zsh-configuration)) |
+| `zshenv` | Loads Cargo's environment and defers `/etc/zshrc` until after the instant prompt. Link it to `~/.zshenv` |
 | `p10k.zsh` | The Powerlevel10k prompt configuration. Link it to `~/.p10k.zsh` |
 
 ## Neovim configuration
@@ -176,6 +177,7 @@ Comments in `init.lua` and the `after/` files follow one style:
 
 ```sh
 ln -sf ~/.config/nvim/zshrc ~/.zshrc
+ln -sf ~/.config/nvim/zshenv ~/.zshenv
 ln -sf ~/.config/nvim/p10k.zsh ~/.p10k.zsh
 chsh -s "$(command -v zsh)"
 exec zsh
@@ -200,7 +202,7 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 
 | Part | Contents |
 | --- | --- |
-| Prompt | Powerlevel10k instant prompt, kept at the very top |
+| Prompt | Powerlevel10k instant prompt, kept at the very top, then `/etc/zshrc` (see [Startup order](#startup-order)) |
 | Environment | `PATH` (`~/.local/bin`, `~/go/bin`, `~/.cargo/bin`), Oh My Zsh path and theme, `EDITOR` / `VISUAL` set to `nvim` |
 | History and options | 50,000 entries in `~/.zsh_history`, shared across terminals, duplicates removed, secret-looking commands never written (see below), `AUTO_CD`, `AUTO_PUSHD`, no beep |
 | Plugins | `git`, `fzf-tab`, `zsh-autosuggestions` (async), `sudo`, `copypath`, `copyfile`, `zsh-syntax-highlighting`, plus `zsh-completions` on `fpath`. The per-startup `compaudit` scan is skipped, and Oh My Zsh's magic functions (`url-quote-magic`, `bracketed-paste-magic`) are off. |
@@ -214,6 +216,14 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 | zoxide | Initialised last, replacing `cd` |
 
 `_cache_eval` caches the output of slow `eval "$(tool init)"` calls (fzf, zoxide) under `~/.cache/zsh` and regenerates it when the tool's binary changes. This keeps startup fast.
+
+### Startup order
+
+Fedora's `/etc/zshrc` sources every `/etc/profile.d` script in each new terminal, which takes about 45 ms (mostly `modules.sh` and `flatpak.sh`). zsh normally runs it before `~/.zshrc`, so the instant prompt could not appear until it finished.
+
+In interactive non-login shells, `zshenv` sets `NO_GLOBAL_RCS` so zsh skips `/etc/zshrc`, and `zshrc` sources it itself, unchanged, right after drawing the instant prompt. The prompt appears in about 5 ms instead of about 60 ms. The shell finishes setting up at about the same time, and anything typed meanwhile runs once it is ready. `/etc/zshrc` and `/etc/profile.d` are read live, so distribution updates still apply, and the resulting functions, aliases, key bindings, options and environment are the same as with the normal order. Login shells (SSH, console) keep the normal order.
+
+Without `zshenv`, zsh simply runs `/etc/zshrc` first as usual.
 
 ### Aliases and functions
 
