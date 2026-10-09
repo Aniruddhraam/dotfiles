@@ -2748,6 +2748,14 @@ vim.lsp.enable("jdtls")
 vim.lsp.enable("texlab")
 vim.lsp.enable("taplo")
 
+-- Neovim's built-in grr/gra/grn/gri/grt/grx make `gr` a prefix, so `gr` below would wait out
+-- 'timeoutlen' before firing. None of them are used here, so drop them to make `gr` immediate.
+for _, lhs in ipairs({ "grr", "gra", "grn", "gri", "grt", "grx" }) do
+  for _, mode in ipairs({ "n", "x" }) do
+    pcall(vim.keymap.del, mode, lhs)
+  end
+end
+
 vim.api.nvim_create_autocmd("LspAttach", {
   group = vim.api.nvim_create_augroup("LspAttachConfig", { clear = true }),
   callback = function(args)
@@ -2767,7 +2775,8 @@ vim.api.nvim_create_autocmd("LspAttach", {
     local function show_references()
       local ok, fzf = pcall(require, "fzf-lua")
       if ok then
-        fzf.lsp_references()
+        -- jump1 = false: always list the references instead of jumping when there is just one.
+        fzf.lsp_references({ jump1 = false })
       else
         vim.lsp.buf.references()
       end
