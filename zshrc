@@ -95,6 +95,17 @@ setopt PUSHD_SILENT              # Don't print the stack after pushd/popd
 setopt INTERACTIVE_COMMENTS      # Allow # comments at the interactive prompt
 setopt NO_BEEP                   # No terminal bell on errors
 
+# Never write secrets to the history file: secret-looking env assignments, --password/--token
+# style flags, bearer auth headers and well-known token prefixes are dropped before saving
+_hist_filter() {
+  emulate -L zsh -o extendedglob
+  [[ $1 != *(BW_SESSION|TOKEN|SECRET|PASSWORD|PASSWD|API_KEY)*=* &&
+     $1 != *--(password|passwd|token|api-key|secret)(=|[[:space:]])* &&
+     $1 != (#i)*authorization:*bearer* &&
+     $1 != *(ghp_|gho_|github_pat_|sk-ant-|xoxb-|xoxp-|AKIA)[A-Za-z0-9]* ]]
+}
+autoload -Uz add-zsh-hook && add-zsh-hook zshaddhistory _hist_filter
+
 # Autosuggestions async non-blocking search
 export ZSH_AUTOSUGGEST_USE_ASYNC=1
 
@@ -119,6 +130,10 @@ plugins=(
   copyfile
   zsh-syntax-highlighting
 )
+
+# Keep the completion dump in the cache dir instead of $HOME
+ZSH_COMPDUMP="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump-${HOST}-${ZSH_VERSION}"
+[[ -d ${ZSH_COMPDUMP:h} ]] || mkdir -p "${ZSH_COMPDUMP:h}"
 
 source $ZSH/oh-my-zsh.sh
 
@@ -153,7 +168,7 @@ if command -v fd &>/dev/null; then
   export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
 fi
 command -v bat &>/dev/null && export FZF_CTRL_T_OPTS="--preview 'bat -n --color=always --line-range :200 {}'"
-command -v eza &>/dev/null && export FZF_ALT_C_OPTS="--preview 'eza --tree --level=2 --color=always --icons {}'"
+command -v eza &>/dev/null && export FZF_ALT_C_OPTS="--preview 'eza --tree --level=2 --color=always --icons=always {}'"
 export FZF_DEFAULT_OPTS="--height=40% --layout=reverse --border"
 
 if command -v fzf &>/dev/null; then
@@ -162,10 +177,10 @@ fi
 
 # Modern CLI Aliases
 if command -v eza &>/dev/null; then
-  alias ls="eza --icons"
-  alias ll="eza -la --icons --git"
-  alias la="eza -a --icons"
-  alias lt="eza --tree --level=2 --icons"
+  alias ls="eza --icons=auto"
+  alias ll="eza -la --icons=auto --git"
+  alias la="eza -a --icons=auto"
+  alias lt="eza --tree --level=2 --icons=auto"
 fi
 
 if command -v bat &>/dev/null; then
@@ -173,9 +188,228 @@ if command -v bat &>/dev/null; then
   export MANPAGER="sh -c 'col -bx | bat -l man -p'"
 fi
 
-if command -v rg &>/dev/null; then
-  alias grep="rg"
-fi
+# grep runs on ripgrep whenever rg can produce the same result, in pipes too; otherwise it
+# falls back to GNU grep. rg runs with -uuu (no ignore files, hidden and binary files
+# included), so it searches the same files grep does.
+#   - flags: -i -y -v -w -x -c -l -L -n -H -h -o -q -s -a -b -Z -r -R -I -E -F -G -P,
+#     -e PAT, -m N, -A/-B/-C N, -NUM, their long forms, --color, --include/--exclude/
+#     --exclude-dir and --binary-files. Any other flag falls back to grep.
+#   - patterns: basic (default) and -E regexes are rewritten into rg syntax (e.g. \| \( \{ \+
+#     become operators, bare | ( { + become literals). Anything rg can't express the same way
+#     (back-references, [[] brackets, GNU-only escapes, newline-separated lists) falls back.
+#   - at the terminal rg adds smart case and its grouped, line-numbered output; piped or
+#     captured output stays plain grep-style lines with grep's case sensitivity.
+#   - no file and stdin is the terminal: rg searches the current directory instead of waiting.
+
+# Rewrite a POSIX basic (bre) or extended (ere) regex into rg syntax in $REPLY; return 1 if the
+# meaning can't be kept exactly.
+_grep_re2rg() {
+  emulate -L zsh -o extendedglob
+  local re=$1 mode=$2 out= c n body
+  local -i i=1 len=${#1} start=1   # start: at a spot where * is literal and ^ is an anchor
+  [[ $re == *$'\n'* ]] && return 1
+  while (( i <= len )); do
+    c=$re[i]
+    if [[ $c == '[' ]]; then
+      # [:class:] is the only nested [ both engines read the same way
+      [[ $re[i,-1] =~ '^\[\^?\]?([^][]|\[:[a-z]+:\])*\]' ]] || return 1
+      body=$MATCH
+      [[ $body == *('&&'|'--'|'~~')* ]] && return 1   # rg class set operators
+      out+=${body//\\/\\\\}                           # \ is literal in POSIX brackets
+      (( i += ${#body} )); start=0
+      continue
+    fi
+    if [[ $c == \\ ]]; then
+      n=$re[i+1]; (( i += 2 ))
+      [[ -n $n ]] || return 1
+      if [[ $mode == bre && $n == [\|\(\)\{\}+?] ]]; then
+        case $n in
+          '(') out+='('; start=1; continue ;;
+          '|') out+='|'; start=1; continue ;;
+          '{') (( start )) && return 1; out+='{'; [[ $re[i] == , ]] && out+=0 ;;  # \{,m\} -> {0,m}
+          *)   (( start )) && [[ $n == [+?] ]] && return 1; out+=$n ;;
+        esac
+      elif [[ $n == [.*\[\]^\$\\+?\(\)\{\}\|] ]]; then out+="\\$n"
+      elif [[ $n == [wWsSbB\<\>] ]]; then out+="\\$n"
+      elif [[ $n == ([[:punct:]]|' ') && $n != [\`\'] ]]; then out+=$n
+      else return 1   # back-references, \` \' and other GNU-only escapes
+      fi
+      start=0
+      continue
+    fi
+    (( i++ ))
+    if [[ $mode == bre ]]; then
+      case $c in
+        [\|\(\)\{\}+?]) out+="\\$c" ;;
+        '*') (( start )) && out+='\*' || out+='*' ;;
+        '^') if (( start )); then out+='^'; continue; else out+='\^'; fi ;;
+        '$') [[ i -gt len || $re[i,i+1] == ('\)'|'\|') ]] && out+='$' || out+='\$' ;;
+        *)   out+=$c ;;
+      esac
+    else
+      case $c in
+        '(') out+='('; start=1; continue ;;
+        '|') out+='|'; start=1; continue ;;
+        '^') out+='^'; continue ;;
+        '{')
+          if [[ $re[i-1,-1] =~ '^\{([0-9]+(,[0-9]*)?|,[0-9]+)\}' ]]; then
+            (( start )) && return 1
+            [[ $MATCH == '{,'* ]] && out+="{0${MATCH#\{}" || out+=$MATCH   # {,m} -> {0,m}
+            (( i += ${#MATCH} - 1 ))
+          else
+            out+='\{'
+          fi ;;
+        '}') out+='\}' ;;
+        [*+?]) (( start )) && return 1; out+=$c ;;
+        *) out+=$c ;;
+      esac
+    fi
+    start=0
+  done
+  REPLY=$out
+}
+
+# Build the rg argv for a grep command line in $reply; return 1 when it needs GNU grep.
+_grep_rg_argv() {
+  emulate -L zsh -o extendedglob
+  local mode=bre arg opt val cl c p
+  local -i recursive=0 skip_binary=0 case_flag=0 opts_done=0 have_e=0 only=0 invert=0
+  local -a pats rpats eargs paths flags engine
+  reply=()
+  while (( $# )); do
+    arg=$1; shift
+    if (( opts_done )) || [[ $arg != -?* ]]; then
+      paths+=("$arg")
+    elif [[ $arg == -- ]]; then
+      opts_done=1
+    elif [[ $arg == --* ]]; then
+      opt=${arg%%=*}; val=${${(M)arg:#*=*}#*=}
+      case $opt in
+        --ignore-case)            flags+=(-i); case_flag=1 ;;
+        --invert-match)           flags+=(-v); invert=1 ;;
+        --word-regexp)            flags+=(-w) ;;
+        --line-regexp)            flags+=(-x) ;;
+        --count)                  flags+=(-c --include-zero) ;;
+        --files-with-matches)     flags+=(-l) ;;
+        --files-without-match)    flags+=(--files-without-match) ;;
+        --line-number)            flags+=(-n) ;;
+        --with-filename)          flags+=(-H) ;;
+        --no-filename)            flags+=(--no-filename) ;;
+        --only-matching)          flags+=(-o); only=1 ;;
+        --quiet|--silent)         flags+=(-q) ;;
+        --no-messages)            flags+=(--no-messages) ;;
+        --text)                   flags+=(-a) ;;
+        --byte-offset)            flags+=(-b) ;;
+        --null)                   flags+=(--null) ;;
+        --line-buffered)          flags+=(--line-buffered) ;;
+        --fixed-strings)          mode=fixed ;;
+        --extended-regexp)        mode=ere ;;
+        --basic-regexp)           mode=bre ;;
+        --perl-regexp)            mode=pcre ;;
+        --recursive)              recursive=1 ;;
+        --dereference-recursive)  recursive=1; flags+=(-L) ;;
+        --color|--colour)         flags+=(--color "${val:-auto}") ;;
+        --binary-files)
+          case $val in
+            binary) ;;
+            text) flags+=(-a) ;;
+            without-match) skip_binary=1 ;;
+            *) return 1 ;;
+          esac ;;
+        --max-count|--after-context|--before-context|--context|--regexp|--include|--exclude|--exclude-dir)
+          if [[ $arg != *=* ]]; then (( $# )) || return 1; val=$1; shift; fi
+          case $opt in
+            --max-count)      flags+=(-m "$val") ;;
+            --after-context)  flags+=(-A "$val") ;;
+            --before-context) flags+=(-B "$val") ;;
+            --context)        flags+=(-C "$val") ;;
+            --regexp)         pats+=("$val"); have_e=1 ;;
+            --include)        flags+=(-g "$val") ;;
+            --exclude)        flags+=(-g "!$val") ;;
+            --exclude-dir)    flags+=(-g "!$val/") ;;
+          esac ;;
+        *) return 1 ;;
+      esac
+    elif [[ $arg == -[0-9]## ]]; then
+      flags+=(-C "${arg#-}")
+    else
+      cl=${arg#-}
+      while [[ -n $cl ]]; do
+        c=$cl[1]; cl=$cl[2,-1]
+        case $c in
+          [ABCme])
+            if [[ -n $cl ]]; then val=$cl; cl=; else (( $# )) || return 1; val=$1; shift; fi
+            case $c in
+              e) pats+=("$val"); have_e=1 ;;
+              *) flags+=(-$c "$val") ;;
+            esac ;;
+          [iy])       flags+=(-i); case_flag=1 ;;
+          [vwxlnHoqab]) flags+=(-$c); [[ $c == o ]] && only=1; [[ $c == v ]] && invert=1 ;;
+          c) flags+=(-c --include-zero) ;;   # rg -c alone hides files with 0 matches
+          L) flags+=(--files-without-match) ;;
+          h) flags+=(--no-filename) ;;
+          s) flags+=(--no-messages) ;;       # rg -s means case-sensitive
+          Z) flags+=(--null) ;;
+          r) recursive=1 ;;
+          R) recursive=1; flags+=(-L) ;;
+          I) skip_binary=1 ;;                # rg -I means --no-filename
+          E) mode=ere ;;
+          F) mode=fixed ;;
+          G) mode=bre ;;
+          P) mode=pcre ;;
+          *) return 1 ;;
+        esac
+      done
+    fi
+  done
+
+  if (( !have_e )); then
+    (( $#paths )) || return 1
+    pats=("$paths[1]"); paths=("${(@)paths[2,-1]}")
+  fi
+  case $mode in
+    fixed) [[ ${(j::)pats} == *$'\n'* ]] && return 1; flags+=(-F); rpats=("${pats[@]}") ;;
+    pcre)  flags+=(-P); rpats=("${pats[@]}") ;;
+    *)     for p in "${pats[@]}"; do _grep_re2rg "$p" $mode || return 1; rpats+=("$REPLY"); done ;;
+  esac
+  for p in "${rpats[@]}"; do eargs+=(-e "$p"); done
+  # Make sure rg accepts the regex before handing it the (possibly piped) input
+  if [[ $mode != fixed && ${(j::)rpats} == *[^[:alnum:][:space:]_./:-]* ]]; then
+    command rg -q ${${(M)mode:#pcre}:+-P} "${eargs[@]}" -- /dev/null 2>/dev/null
+    (( $? == 2 )) && return 1
+  fi
+  # grep -o skips empty matches and prints nothing with -v; rg doesn't
+  if (( only )); then
+    (( invert )) && return 1
+    print | command rg -q ${${(M)mode:#pcre}:+-P} ${${(M)mode:#fixed}:+-F} "${eargs[@]}" 2>/dev/null && return 1
+  fi
+
+  if (( !$#paths )) && [[ ! -t 0 ]]; then
+    (( recursive )) && return 1   # grep -r with no path searches ., ignoring stdin
+    paths=(-)                     # otherwise read stdin, even when it isn't a pipe
+  fi
+
+  engine=(-uuu); (( skip_binary )) && engine=(-uu)
+  [[ -t 1 ]] && (( !case_flag )) && engine+=(-S)
+  reply=("${engine[@]}" "${flags[@]}" "${eargs[@]}" -- "${paths[@]}")
+}
+
+unalias grep 2>/dev/null
+grep() {
+  if (( $+commands[rg] )) && _grep_rg_argv "$@"; then
+    if [[ -t 1 ]]; then
+      command rg "${reply[@]}"
+    else
+      # rg reports binary-file matches on stdout; grep reports them on stderr
+      command rg "${reply[@]}" | command awk '
+        /^(.*: )?binary file matches \(found "\\0" byte around offset [0-9]+\)$/ { print "grep: " $0 > "/dev/stderr"; next }
+        { print }'
+      return $pipestatus[1]
+    fi
+  else
+    command grep --color=auto "$@"
+  fi
+}
 
 alias v="nvim"
 alias vim="nvim"
@@ -198,7 +432,7 @@ zstyle ':completion:*:descriptions' format '[%d]'
 zstyle ':completion:*' group-name ''
 zstyle ':fzf-tab:*' switch-group '<' '>'
 if command -v eza &>/dev/null; then
-  zstyle ':fzf-tab:complete:(cd|__zoxide_z|z|ls|eza):*' fzf-preview 'eza -1 --color=always --icons $realpath'
+  zstyle ':fzf-tab:complete:(cd|__zoxide_z|z|ls|eza):*' fzf-preview 'eza -1 --color=always --icons=always $realpath'
 fi
 
 # QoL aliases/functions (new names only; existing commands keep their default behaviour)
@@ -864,8 +1098,13 @@ secure-mode() { dnsodoh; }    # back to ODoH via dnscrypt-proxy
 
 # uv: `uv add <pkg>` outside any project first creates a bare pyproject.toml (no git repo,
 # README, .python-version or src/), then runs the normal add, which makes .venv.
+# `uv run Q10` runs Q10.py when Q10 itself isn't a file, a command on PATH or a project script.
 # Everything else, and `add` inside an existing project, passes straight through.
 uv() {
+  if [[ $1 == run && -n $2 && $2 != -* && ! -e $2 && -f $2.py ]] &&
+     ! whence -p -- "$2" >/dev/null && [[ ! -e .venv/bin/$2 ]]; then
+    set -- run "$2.py" "${@:3}"
+  fi
   if [[ $1 == add ]]; then
     local arg d=$PWD
     for arg in "$@"; do
@@ -879,6 +1118,40 @@ uv() {
     [[ -f $d/pyproject.toml ]] || command uv init --bare --no-workspace --vcs none || return
   fi
   command uv "$@"
+}
+
+# Update everything in one go; a failing step doesn't stop the rest, failures are listed at the end
+upall() {
+  local step
+  local -a failed
+  for step in \
+    'sudo dnf upgrade --refresh -y' \
+    'gup update' \
+    'pnpm update -g oxfmt oxlint @oxc-node/cli @vtsls/language-server typescript basedpyright' \
+    'rustup update' \
+    'cargo install-update -a' \
+    'uv tool upgrade --all' \
+    'flatpak update -y'
+  do
+    print -P "%F{blue}==> $step%f"
+    eval $step || failed+=("$step")
+  done
+  if (( $#failed )); then
+    print -P "%F{red}==> failed:%f ${(j:, :)failed}"
+    return 1
+  fi
+  print -P "%F{green}==> all up to date%f"
+}
+
+# clone <repo | owner/repo | url> [git clone flags]: clone, then cd into it.
+# A bare repo name means github.com/Aniruddhraam/<repo>.
+clone() {
+  local url=${1:?usage: clone <repo|owner/repo|url> [git clone flags]}; shift
+  if [[ $url != *(://|@)* ]]; then
+    [[ $url == */* ]] || url=Aniruddhraam/$url
+    url=https://github.com/$url
+  fi
+  git clone "$@" -- "$url" && builtin cd -- "${${url:t}%.git}"
 }
 
 # alt+j / alt+k act as down / up arrows at the prompt (same as the nvim mappings).
