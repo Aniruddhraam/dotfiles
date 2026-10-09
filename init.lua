@@ -2913,14 +2913,15 @@ function Tool_Progress.start(opts)
 end
 
 -- Diagnostic re-checks. After an edit, servers recompute diagnostics without reporting $/progress
--- (vtsls takes ~0.5s, texlab ~0.3s, basedpyright longer on big files), so track each one: pull
+-- (vtsls takes ~0.5s, texlab ~0.3s), so track each one: pull
 -- servers by their textDocument/diagnostic requests, push servers from didChange until they
 -- publish for that file. Only checks still running after CHECK_DELAY_MS show up (clangd, gopls,
 -- and taplo answer instantly), and none appear mid-insert.
 local CHECK_DELAY_MS = 300
 local CHECK_TIMEOUT_MS = 6000
--- rust-analyzer publishes only after cargo check, which it already reports itself.
-local CHECK_SKIP = { rust_analyzer = true }
+-- rust-analyzer publishes only after cargo check, which it already reports itself. basedpyright
+-- re-checks on nearly every edit, so its indicator would flash constantly.
+local CHECK_SKIP = { rust_analyzer = true, basedpyright = true }
 local lsp_checks = {} ---@type table<string, table>
 local lsp_published = {} ---@type table<string, boolean> push server has published for this buffer
 local lsp_answers = {} ---@type table<integer, boolean> push server has answered an edit with a publish
