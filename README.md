@@ -202,14 +202,14 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 | --- | --- |
 | Prompt | Powerlevel10k instant prompt, kept at the very top |
 | Environment | `PATH` (`~/.local/bin`, `~/go/bin`, `~/.cargo/bin`), Oh My Zsh path and theme, `EDITOR` / `VISUAL` set to `nvim` |
-| History and options | 50,000 entries in `~/.zsh_history`, shared across terminals, duplicates removed, `AUTO_CD`, `AUTO_PUSHD`, no beep |
+| History and options | 50,000 entries in `~/.zsh_history`, shared across terminals, duplicates removed, secret-looking commands never written (see below), `AUTO_CD`, `AUTO_PUSHD`, no beep |
 | Plugins | `git`, `fzf-tab`, `zsh-autosuggestions` (async), `sudo`, `copypath`, `copyfile`, `zsh-syntax-highlighting`, plus `zsh-completions` on `fpath`. The per-startup `compaudit` scan is skipped. |
 | fzf | `fd` as the file source, `bat` and `eza` previews, and the fzf key bindings loaded through `_cache_eval` |
 | Aliases | Modern CLI replacements and shortcuts (see below) |
-| Completion | Case-insensitive and partial matching, fzf-tab renders the menu, completions cached in `~/.cache/zsh` |
+| Completion | Case-insensitive and partial matching, fzf-tab renders the menu, completions and the completion dump (`ZSH_COMPDUMP`) kept in `~/.cache/zsh` instead of `$HOME` |
 | Archives | The `extract` and `compress` functions, with tab completion for `compress` |
 | Bytecode | `~/.zshrc` and `~/.p10k.zsh` are compiled with `zcompile` whenever they change |
-| Tooling | `pnpm` on `PATH`, the DNS mode helpers, and the `uv` wrapper |
+| Tooling | `pnpm` on `PATH`, the DNS mode helpers, the `uv` wrapper, `upall` and `clone` |
 | Key bindings | `Alt+j` / `Alt+k` history search |
 | zoxide | Initialised last, replacing `cd` |
 
@@ -219,9 +219,9 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 
 | Name | Description |
 | --- | --- |
-| `ls`, `ll`, `la`, `lt` | `eza` with icons (`ll` adds git status, `lt` is a two-level tree). Needs `eza`. |
+| `ls`, `ll`, `la`, `lt` | `eza` with icons (`--icons=auto`; `ll` adds git status, `lt` is a two-level tree). Needs `eza`. |
 | `cat`, `bcat` | `bat` without a pager. `man` pages also render through `bat`. Needs `bat`. |
-| `grep` | `rg`. Needs `rg`. |
+| `grep` | Runs on `rg -uuu` whenever rg can give grep's result, including in pipes, and on GNU grep otherwise (see [grep](#grep)). Needs `rg`. |
 | `v`, `vim` | `nvim` |
 | `lg` | `lazygit` |
 | `icat` | Show an image in the terminal through `kitten icat`, or `chafa` as a fallback |
@@ -236,8 +236,26 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 | `dnsodoh` / `secure-mode` | Switch back to the local `dnscrypt-proxy` (ODoH) resolver and check that it resolves |
 | `dnsstatus` | Show the active DNS mode and time a lookup |
 | `uv add <pkg>` | Outside any project, first creates a bare `pyproject.toml`, then runs the normal `uv add`. Everything else passes straight through. |
+| `uv run <name>` | Runs `<name>.py` when `<name>` is not a file, a command on `PATH` or a project script, so `uv run Q10` runs `Q10.py` |
+| `upall` | Runs the `dnf`, `gup`, `pnpm`, `rustup`, `cargo install-update`, `uv tool` and `flatpak` updates in turn and lists any step that failed |
+| `clone <repo>` | `git clone`, then `cd` into the result. Takes a URL, `owner/repo`, or a bare name for `github.com/Aniruddhraam/<repo>`; extra arguments go to `git clone`. |
 
 The DNS helpers rewrite `/etc/resolv.conf` with `sudo`. They assume `dnscrypt-proxy` runs in both modes and only the resolver file changes.
+
+### grep
+
+`grep` is a function that translates the grep command line into ripgrep flags. It runs `rg -uuu` (no ignore files; hidden and binary files included, so it searches the same files grep does) whenever rg can produce grep's result, and GNU grep otherwise.
+
+- Flags: `-i -y -v -w -x -c -l -L -n -H -h -o -q -s -a -b -Z -r -R -I -E -F -G -P`, `-e`, `-m`, `-A`/`-B`/`-C`, `-NUM`, their long forms, `--color`, `--include`, `--exclude`, `--exclude-dir` and `--binary-files`. Any other flag uses GNU grep.
+- Patterns: basic and `-E` regexes are rewritten into rg syntax, so `\|`, `\(` and `\{` stay operators and bare `|`, `(` and `{` stay literal. Back-references, `[[]`-style brackets, GNU-only escapes and newline-separated pattern lists use GNU grep.
+- At the terminal, rg adds smart case and its grouped, line-numbered output. With no file and the terminal as input, it searches the current directory instead of waiting for input.
+- Piped or captured output stays plain grep lines with grep's case rules, and rg's "binary file matches" notice goes to stderr, as grep's does.
+
+Scripts never see the function. Use `command grep` for GNU grep at the prompt.
+
+### History filter
+
+A `zshaddhistory` hook drops commands that look like they carry a secret before they reach `~/.zsh_history`: assignments to variables whose names contain `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`, `API_KEY` or `BW_SESSION`; `--password`, `--token`, `--api-key` and `--secret` flags; `Authorization: Bearer` headers; and values starting with `ghp_`, `gho_`, `github_pat_`, `sk-ant-`, `xoxb-`, `xoxp-` or `AKIA`. The command still runs. Starting a command with a space also keeps it out of history (`HIST_IGNORE_SPACE`).
 
 ### Zsh key bindings
 
@@ -251,7 +269,8 @@ The DNS helpers rewrite `/etc/resolv.conf` with `sudo`. They assume `dnscrypt-pr
 
 - Change the prompt with `p10k configure` or by editing `p10k.zsh` (linked to `~/.p10k.zsh`).
 - Add or remove Oh My Zsh plugins in the `plugins=( ... )` array. Keep `fzf-tab` before `zsh-autosuggestions` and `zsh-syntax-highlighting`, since it must load before plugins that wrap ZLE widgets.
-- `alias grep="rg"` changes `grep`'s behaviour for interactive use. Delete the alias, or call `command grep`, when you need the real one.
+- `grep` runs on ripgrep where it can (see [grep](#grep)). Call `command grep` when you need GNU grep.
+- Edit the package list in `upall` to match the global `pnpm` packages you keep.
 - Cached `tool init` output lives in `~/.cache/zsh`. Delete a file there to force it to regenerate.
 - The `PNPM_HOME` block holds an absolute path written by the pnpm installer. Change it if the home directory differs.
 - The commented-out options near the top of the file are Oh My Zsh's stock template. The sections after them are headed by `# ====` banners.
