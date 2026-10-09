@@ -64,6 +64,7 @@ local extra_paths = {
   vim.fn.expand("~/.local/bin"),
   vim.fn.expand("~/go/bin"),
   vim.fn.expand("~/.cargo/bin"),
+  vim.fn.expand("~/.local/share/pnpm/bin"),
   vim.fn.expand("~/AppData/Roaming/npm"),
   vim.fn.expand("~/scoop/shims"),
 }
