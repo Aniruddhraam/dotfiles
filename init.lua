@@ -3993,6 +3993,11 @@ vim.keymap.set({ 'i', 'c' }, '<M-b>', '<BS>', { noremap = true, silent = true, d
 -- Normal mode.
 vim.keymap.set({ 'i', 'c' }, '<M-BS>', '<BS>', { noremap = true, silent = true, desc = "Backspace" })
 
+-- Ctrl+Backspace deletes the previous word (Insert mode only). <C-g>u makes it its own undo step.
+-- Needs a terminal that speaks the kitty keyboard protocol (Ghostty, kitty, WezTerm). Elsewhere it
+-- arrives as <C-h>, which is Home in Insert mode (below).
+vim.keymap.set('i', '<C-BS>', '<C-g>u<C-w>', { noremap = true, silent = true, desc = "Delete Previous Word (Insert)" })
+
 -- Alt+o: run one Normal-mode command from Insert mode.
 vim.keymap.set('i', '<M-o>', '<C-o>', { noremap = true, silent = true, desc = "Execute single Normal command from Insert" })
 vim.keymap.set('i', '<M-O>', '<C-o>', { noremap = true, silent = true, desc = "Execute single Normal command from Insert" })
