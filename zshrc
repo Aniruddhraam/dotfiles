@@ -135,6 +135,10 @@ plugins=(
 ZSH_COMPDUMP="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump-${HOST}-${ZSH_VERSION}"
 [[ -d ${ZSH_COMPDUMP:h} ]] || mkdir -p "${ZSH_COMPDUMP:h}"
 
+# No url-quote-magic / bracketed-paste-magic: they made large pastes take seconds and
+# inserted backslashes into URLs pasted inside quotes
+DISABLE_MAGIC_FUNCTIONS=true
+
 source $ZSH/oh-my-zsh.sh
 
 # User configuration

@@ -203,7 +203,7 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 | Prompt | Powerlevel10k instant prompt, kept at the very top |
 | Environment | `PATH` (`~/.local/bin`, `~/go/bin`, `~/.cargo/bin`), Oh My Zsh path and theme, `EDITOR` / `VISUAL` set to `nvim` |
 | History and options | 50,000 entries in `~/.zsh_history`, shared across terminals, duplicates removed, secret-looking commands never written (see below), `AUTO_CD`, `AUTO_PUSHD`, no beep |
-| Plugins | `git`, `fzf-tab`, `zsh-autosuggestions` (async), `sudo`, `copypath`, `copyfile`, `zsh-syntax-highlighting`, plus `zsh-completions` on `fpath`. The per-startup `compaudit` scan is skipped. |
+| Plugins | `git`, `fzf-tab`, `zsh-autosuggestions` (async), `sudo`, `copypath`, `copyfile`, `zsh-syntax-highlighting`, plus `zsh-completions` on `fpath`. The per-startup `compaudit` scan is skipped, and Oh My Zsh's magic functions (`url-quote-magic`, `bracketed-paste-magic`) are off. |
 | fzf | `fd` as the file source, `bat` and `eza` previews, and the fzf key bindings loaded through `_cache_eval` |
 | Aliases | Modern CLI replacements and shortcuts (see below) |
 | Completion | Case-insensitive and partial matching, fzf-tab renders the menu, completions and the completion dump (`ZSH_COMPDUMP`) kept in `~/.cache/zsh` instead of `$HOME` |
@@ -269,6 +269,7 @@ A `zshaddhistory` hook drops commands that look like they carry a secret before 
 
 - Change the prompt with `p10k configure` or by editing `p10k.zsh` (linked to `~/.p10k.zsh`).
 - Add or remove Oh My Zsh plugins in the `plugins=( ... )` array. Keep `fzf-tab` before `zsh-autosuggestions` and `zsh-syntax-highlighting`, since it must load before plugins that wrap ZLE widgets.
+- URLs are not escaped as you type or paste them (the magic functions are off), so quote any URL containing `?`, `&` or `=`.
 - `grep` runs on ripgrep where it can (see [grep](#grep)). Call `command grep` when you need GNU grep.
 - Edit the package list in `upall` to match the global `pnpm` packages you keep.
 - Cached `tool init` output lives in `~/.cache/zsh`. Delete a file there to force it to regenerate.
