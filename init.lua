@@ -610,6 +610,69 @@ require("lazy").setup({
               draw_frame()
           end,
       })
+
+      -- Keep the dashboard clean: no statusline or tab bar while it is the only thing on screen
+      -- (sidebars aside). They come back once it closes or a file opens beside it, as NvimTree does
+      -- when it cannot reuse the dashboard window. lualine and bufferline load later (VeryLazy) and
+      -- switch their bars back on, so a non-zero value seen while the dashboard is up is the one to
+      -- restore.
+      local saved_bars = nil
+      local function sync_dashboard_bars()
+        local has_dashboard, has_file = false, false
+        for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+          local buf = vim.api.nvim_win_get_buf(win)
+          if vim.bo[buf].filetype == "alpha" then
+            has_dashboard = true
+          elseif vim.bo[buf].buftype == "" and vim.api.nvim_win_get_config(win).relative == "" then
+            has_file = true
+          end
+        end
+        if has_dashboard and not has_file then
+          saved_bars = saved_bars or {}
+          if vim.o.laststatus ~= 0 then saved_bars.laststatus = vim.o.laststatus end
+          if vim.o.showtabline ~= 0 then saved_bars.showtabline = vim.o.showtabline end
+          vim.o.laststatus, vim.o.showtabline = 0, 0
+        elseif saved_bars then
+          -- Leave a bar alone if something else changed it while the dashboard was up.
+          if saved_bars.laststatus and vim.o.laststatus == 0 then vim.o.laststatus = saved_bars.laststatus end
+          if saved_bars.showtabline and vim.o.showtabline == 0 then vim.o.showtabline = saved_bars.showtabline end
+          saved_bars = nil
+        end
+      end
+
+      vim.api.nvim_create_autocmd("User", {
+        pattern = "AlphaReady",
+        callback = function()
+          -- Closing the last file (as <leader>h does before opening the dashboard) leaves an empty,
+          -- hidden [No Name] buffer, which would linger in the tab bar. Wipe it, unless NvimTree or
+          -- Aerial is open: the layout guard would react to the deletion by closing Aerial or
+          -- opening a new empty split beside NvimTree.
+          local has_sidebar = false
+          for _, win in ipairs(vim.api.nvim_list_wins()) do
+            local ft = vim.bo[vim.api.nvim_win_get_buf(win)].filetype
+            if ft == "NvimTree" or ft == "aerial" then has_sidebar = true end
+          end
+          if not has_sidebar then
+            for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+              if vim.bo[buf].buflisted and vim.bo[buf].buftype == "" and not vim.bo[buf].modified
+                  and vim.api.nvim_buf_get_name(buf) == "" and #vim.fn.win_findbuf(buf) == 0
+                  and vim.api.nvim_buf_line_count(buf) == 1 and vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == "" then
+                pcall(vim.api.nvim_buf_delete, buf, {})
+              end
+            end
+          end
+          sync_dashboard_bars()
+        end,
+      })
+      -- Scheduled, so the dashboard buffer is gone and the plugins (or lualine's ColorScheme
+      -- re-setup) have finished setting their bars before the check runs.
+      vim.api.nvim_create_autocmd("User", {
+        pattern = { "AlphaClosed", "VeryLazy" },
+        callback = function() vim.schedule(sync_dashboard_bars) end,
+      })
+      vim.api.nvim_create_autocmd({ "BufWinEnter", "WinClosed", "TabEnter", "ColorScheme" }, {
+        callback = function() vim.schedule(sync_dashboard_bars) end,
+      })
     end
   },
 
