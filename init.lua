@@ -4493,62 +4493,337 @@ vim.api.nvim_create_autocmd("TermOpen", {
 vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "TermEnter" }, { group = term_group, callback = term_enter })
 vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, { group = term_group, callback = term_leave })
 
--- Ctrl+Click a URL in a terminal buffer to open it. The host terminal only sees nvim's redraw, so
--- its own link detection never fires; the click position is mapped back to buffer text instead.
--- Rows filled to the window width are treated as one soft-wrapped line so long URLs open whole.
-local function url_at_mouse()
-  local pos = vim.fn.getmousepos()
-  if pos.winid == 0 or pos.line == 0 or pos.column == 0 then return end
-  local buf = vim.api.nvim_win_get_buf(pos.winid)
-  if vim.bo[buf].buftype ~= "terminal" then return end
-  local width = vim.api.nvim_win_get_width(pos.winid)
-  local function row(n) return vim.api.nvim_buf_get_lines(buf, n - 1, n, false)[1] end
-  local function full(n) local l = row(n); return l ~= nil and vim.fn.strdisplaywidth(l) >= width end
+-- Ctrl+Click a link to open it, in any buffer: a URL anywhere (code comments, plain text, hover
+-- popups, terminals), or a Markdown link to a URL, a file (opens in the editor) or a heading in
+-- the same file. With no link under the mouse, Ctrl+Click keeps its default (a tag jump, which
+-- LSP turns into go-to-definition). The host terminal only sees nvim's redraw, so its own link
+-- detection never fires; the click position is mapped back to buffer text instead.
+local markdown_filetypes = { markdown = true, rmd = true, quarto = true, mdx = true }
 
-  local first, last = pos.line, pos.line
-  while first > 1 and full(first - 1) do first = first - 1 end
-  while full(last) and row(last + 1) do last = last + 1 end
+-- Drop trailing punctuation and a closing bracket the URL does not own, e.g. "(see https://x.com/a)."
+local function trim_url(url)
+  local prev
+  repeat
+    prev = url
+    url = url:gsub("[.,;:!?]+$", "")
+    for open, close in pairs({ ["("] = ")", ["["] = "]", ["{"] = "}" }) do
+      local _, opens = url:gsub("%" .. open, "")
+      local _, closes = url:gsub("%" .. close, "")
+      if closes > opens and url:sub(-1) == close then url = url:sub(1, -2) end
+    end
+  until url == prev
+  return url
+end
 
-  local text, offset = "", 0
-  for n = first, last do
-    if n == pos.line then offset = #text + pos.column end
-    text = text .. row(n)
-  end
-
+local function url_at(text, offset)
   local init = 1
   while true do
     local s, e = text:find("%a[%w+.-]*://[^%s<>\"'`]+", init)
     if not s then return end
-    local url = text:sub(s, e):gsub("[.,;:!?]+$", "")
-    -- Drop a closing bracket the URL does not own, e.g. "(see https://x.com/a)".
-    for open, close in pairs({ ["("] = ")", ["["] = "]", ["{"] = "}" }) do
-      local _, opens = url:gsub("%" .. open, "")
-      local _, closes = url:gsub("%" .. close, "")
-      while closes > opens and url:sub(-1) == close do
-        url = url:sub(1, -2)
-        closes = closes - 1
-      end
-    end
+    local url = trim_url(text:sub(s, e))
     if offset >= s and offset <= s + #url - 1 then return url end
     init = e + 1
   end
 end
 
-local function open_url_at_mouse()
-  local url = url_at_mouse()
-  if url then
-    vim.ui.open(url)
-  else
-    vim.notify("No URL under cursor", vim.log.levels.INFO)
+local function normalize_label(label) return (label:lower():gsub("%s+", " ")) end
+
+-- The innermost Markdown link on this line that contains `offset`: [text](target), ![alt](target),
+-- [text][label], [label][] or [label]. Returns the raw target, or {label = ...} for a reference.
+local function md_link_at(text, offset)
+  local best
+  local init = 1
+  while true do
+    local s = text:find("[", init, true)
+    if not s then break end
+    init = s + 1
+    local depth, close, j = 0, nil, s
+    while j <= #text do
+      local c = text:sub(j, j)
+      if c == "\\" then
+        j = j + 1
+      elseif c == "[" then
+        depth = depth + 1
+      elseif c == "]" then
+        depth = depth - 1
+        if depth == 0 then
+          close = j
+          break
+        end
+      end
+      j = j + 1
+    end
+    if close then
+      local inner_text = text:sub(s + 1, close - 1)
+      local e, target, label
+      local nxt = text:sub(close + 1, close + 1)
+      if nxt == "(" then
+        local d, k = 0, close + 1
+        while k <= #text do
+          local c = text:sub(k, k)
+          if c == "\\" then
+            k = k + 1
+          elseif c == "(" then
+            d = d + 1
+          elseif c == ")" then
+            d = d - 1
+            if d == 0 then break end
+          end
+          k = k + 1
+        end
+        if k <= #text then
+          e = k
+          local dest = vim.trim(text:sub(close + 2, k - 1))
+          target = dest:match("^<([^>]*)>") or dest:match("^(%S+)")
+        end
+      elseif nxt == "[" then
+        local l_end = text:find("]", close + 2, true)
+        if l_end then
+          e = l_end
+          label = text:sub(close + 2, l_end - 1)
+          if label == "" then label = inner_text end
+        end
+      else
+        e, label = close, inner_text
+      end
+      -- Footnote markers ([^1]) are not links.
+      if label and (label:sub(1, 1) == "^" or label:match("^%s*$")) then e = nil end
+      if e and (target or label) and offset >= s and offset <= e and (not best or e - s < best.e - best.s) then
+        best = { s = s, e = e, target = target, label = label }
+      end
+    end
+  end
+  if not best then return end
+  return best.target or { label = best.label }
+end
+
+-- The destination of `[label]: dest` in the buffer.
+local function md_reference(buf, label)
+  local want = normalize_label(label)
+  for _, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+    local name, dest = line:match("^ ? ? ?%[([^%]]+)%]:%s*(%S+)")
+    if name and normalize_label(name) == want then return dest:match("^<(.*)>$") or dest end
   end
 end
-vim.api.nvim_create_autocmd("TermOpen", {
-  group = term_group,
-  callback = function(args)
-    vim.keymap.set({ 'n', 't' }, '<C-LeftMouse>', open_url_at_mouse, { buffer = args.buf, silent = true, desc = "Open URL under mouse" })
-    vim.keymap.set({ 'n', 't' }, '<C-LeftRelease>', '<Nop>', { buffer = args.buf, silent = true })
-  end,
-})
+
+local function url_decode(s)
+  return (s:gsub("%%(%x%x)", function(hex) return string.char(tonumber(hex, 16)) end))
+end
+
+-- GitHub-style heading id: lowercase, punctuation dropped, spaces to hyphens.
+local function heading_slug(title)
+  title = title:gsub("%[([^%]]*)%]%b()", "%1"):lower()
+  title = title:gsub("[^%w%s_%-\128-\255]", ""):gsub("%s", "-")
+  return title
+end
+
+local function jump_to_heading(win, anchor)
+  anchor = url_decode(anchor):lower()
+  local buf = vim.api.nvim_win_get_buf(win)
+  local seen, in_fence = {}, false
+  for lnum, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+    if line:match("^%s*```") or line:match("^%s*~~~") then
+      in_fence = not in_fence
+    elseif not in_fence then
+      local title = line:match("^ ? ? ?#+%s+(.-)%s*$")
+      if title then
+        local slug = heading_slug((title:gsub("%s+#+$", "")))
+        local n = seen[slug] or 0
+        seen[slug] = n + 1
+        if (n == 0 and slug or slug .. "-" .. n) == anchor then
+          vim.api.nvim_win_call(win, function()
+            vim.cmd("normal! m'")
+            vim.api.nvim_win_set_cursor(win, { lnum, 0 })
+            vim.cmd("normal! zt")
+          end)
+          return
+        end
+      end
+    end
+  end
+  vim.notify("Heading not found: #" .. anchor, vim.log.levels.WARN)
+end
+
+local function open_target(buf, win, target)
+  if target:match("^%a[%w+.-]*://") or target:match("^mailto:") then
+    local _, err = vim.ui.open(target)
+    if err then vim.notify("Could not open " .. target .. ": " .. err, vim.log.levels.ERROR) end
+    return
+  end
+  -- Anything else is a path, relative to the file the link is in, with an optional #heading.
+  local path, anchor = target:match("^([^#]*)#?(.*)$")
+  if vim.api.nvim_win_get_config(win).relative == "" then vim.api.nvim_set_current_win(win) end
+  if path ~= "" then
+    path = vim.fs.normalize(url_decode(path))
+    if not vim.startswith(path, "/") then
+      local name = vim.api.nvim_buf_get_name(buf)
+      path = vim.fs.joinpath(name ~= "" and vim.fs.dirname(name) or vim.fn.getcwd(), path)
+    end
+    if not vim.uv.fs_stat(path) then
+      vim.notify("File not found: " .. path, vim.log.levels.WARN)
+      return
+    end
+    local ok, err = pcall(vim.cmd, "edit " .. vim.fn.fnameescape(path))
+    if not ok then
+      vim.notify(tostring(err), vim.log.levels.ERROR)
+      return
+    end
+    win = vim.api.nvim_get_current_win()
+  end
+  if anchor ~= "" then jump_to_heading(win, anchor) end
+end
+
+-- getmousepos() maps a click as if nothing were concealed, so on a line with concealed text
+-- (rendered Markdown hides the "](url)" half of a link) it lands on the wrong byte. This rebuilds
+-- the layout the screen shows: concealed bytes take no cells (or one, for a replacement
+-- character) and inline virtual text adds cells. Returns the 1-based byte under the click, false
+-- when the click is past the end of the line, or nil when the line has no concealed text, where
+-- getmousepos() is already right.
+local function concealed_click_col(win, buf, pos, line)
+  local lnum, row = pos.line, pos.line - 1
+  local level = vim.wo[win].conceallevel
+  if level == 0 or #line > 10000 then return end
+  if win == vim.api.nvim_get_current_win() and vim.api.nvim_win_get_cursor(win)[1] == lnum then
+    -- The cursor line only conceals in the modes listed in 'concealcursor'.
+    local modes = { n = "n", i = "i", R = "i", v = "v", V = "v", ["\22"] = "v", s = "v", S = "v", ["\19"] = "v", c = "c" }
+    local key = modes[vim.api.nvim_get_mode().mode:sub(1, 1)] or "n"
+    if not vim.wo[win].concealcursor:find(key, 1, true) then return end
+  end
+
+  local hidden = {} -- 0-based byte -> replacement character ("" hides it)
+  local function conceal(sr, sc, er, ec, cchar)
+    if sr > row or er < row then return end
+    for col = (sr == row and sc or 0), (er == row and ec or #line) - 1 do hidden[col] = cchar end
+  end
+  local inline = {} -- 0-based byte -> cells of inline virtual text drawn before it
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, -1, { row, 0 }, { row, -1 }, { details = true, overlap = true })) do
+    local d = m[4]
+    if d.conceal ~= nil then conceal(m[2], m[3], d.end_row or m[2], d.end_col or m[3], d.conceal) end
+    if d.virt_text_pos == "inline" and d.virt_text and m[2] == row then
+      for _, chunk in ipairs(d.virt_text) do
+        inline[m[3]] = (inline[m[3]] or 0) + vim.fn.strdisplaywidth(chunk[1])
+      end
+    end
+  end
+  if vim.bo[buf].syntax ~= "" then
+    vim.api.nvim_win_call(win, function()
+      for col = 1, #line do
+        local c = vim.fn.synconcealed(lnum, col)
+        if c[1] == 1 then hidden[col - 1] = c[2] end
+      end
+    end)
+  end
+  -- Treesitter conceals through highlight-query captures, which leave no extmarks to read back.
+  if vim.treesitter.highlighter.active[buf] then
+    local parser = vim.treesitter.get_parser(buf, nil, { error = false })
+    if parser then
+      parser:for_each_tree(function(tree, ltree)
+        local query = vim.treesitter.query.get(ltree:lang(), "highlights")
+        if not query then return end
+        for id, node, metadata in query:iter_captures(tree:root(), buf, row, row + 1) do
+          local cchar = (metadata[id] or {}).conceal
+          if cchar == nil then cchar = metadata.conceal end
+          if cchar ~= nil then
+            local r = vim.treesitter.get_range(node, buf, metadata[id])
+            conceal(r[1], r[2], r[4], r[5], cchar)
+          end
+        end
+      end)
+    end
+  end
+  if next(hidden) == nil then return end
+
+  local info = vim.fn.getwininfo(win)[1]
+  local text_width = math.max(1, info.width - info.textoff)
+  local first_row = vim.fn.screenpos(win, lnum, 1).row
+  if first_row == 0 then return end
+  local wrap = vim.wo[win].wrap
+  local want_row = wrap and pos.screenrow - first_row or 0
+  local want_col = pos.wincol - 1 - info.textoff
+  if not wrap then want_col = want_col + vim.api.nvim_win_call(win, function() return vim.fn.winsaveview().leftcol end) end
+
+  -- A wrapped line breaks where its unconcealed text would, then each row loses its concealed
+  -- cells, so rows come out shorter than the window is wide.
+  local raw, row, shown = 0, 0, 0
+  local function advance(raw_width, shown_width)
+    local r = wrap and math.floor(raw / text_width) or 0
+    if r ~= row then row, shown = r, 0 end
+    local start = shown
+    raw, shown = raw + raw_width, shown + shown_width
+    return r, start
+  end
+  local i, in_run = 1, false
+  while i <= #line do
+    if inline[i - 1] then advance(inline[i - 1], inline[i - 1]) end
+    local nxt = i + vim.str_utf_end(line, i) + 1
+    local raw_width = vim.fn.strdisplaywidth(line:sub(i, nxt - 1), raw)
+    local width, cchar = raw_width, hidden[i - 1]
+    if cchar == nil then
+      in_run = false
+    else
+      -- Level 1 shows one character per concealed run, level 2 only where one is defined.
+      width = (not in_run and (level == 1 or (level == 2 and cchar ~= ""))) and 1 or 0
+      in_run = true
+    end
+    local r, start = advance(raw_width, width)
+    if r > want_row then return false end
+    if r == want_row and width > 0 and want_col >= start and want_col < start + width then return i end
+    i = nxt
+  end
+  return false
+end
+
+-- The link under the mouse: its target (nil if none), plus the clicked buffer and window.
+local function link_at_mouse()
+  local pos = vim.fn.getmousepos()
+  if pos.winid == 0 or pos.line == 0 or pos.column == 0 then return end
+  local buf = vim.api.nvim_win_get_buf(pos.winid)
+  local text, offset
+  if vim.bo[buf].buftype == "terminal" then
+    -- Rows filled to the window width are one soft-wrapped line, so long URLs open whole.
+    local width = vim.api.nvim_win_get_width(pos.winid)
+    local function row(n) return vim.api.nvim_buf_get_lines(buf, n - 1, n, false)[1] end
+    local function full(n) local l = row(n); return l ~= nil and vim.fn.strdisplaywidth(l) >= width end
+    local first, last = pos.line, pos.line
+    while first > 1 and full(first - 1) do first = first - 1 end
+    while full(last) and row(last + 1) do last = last + 1 end
+    text, offset = "", 0
+    for n = first, last do
+      if n == pos.line then offset = #text + pos.column end
+      text = text .. row(n)
+    end
+  else
+    text, offset = vim.api.nvim_buf_get_lines(buf, pos.line - 1, pos.line, false)[1] or "", pos.column
+    local col = concealed_click_col(pos.winid, buf, pos, text)
+    if col == false then return nil, buf, pos.winid end
+    offset = col or offset
+    -- Keep the scans cheap on minified or generated lines.
+    if #text > 10000 then
+      local from = math.max(1, offset - 5000)
+      text, offset = text:sub(from, offset + 5000), offset - from + 1
+    end
+  end
+
+  local target
+  if markdown_filetypes[vim.bo[buf].filetype] then
+    target = md_link_at(text, offset)
+    if type(target) == "table" then target = md_reference(buf, target.label) end
+  end
+  return target or url_at(text, offset), buf, pos.winid
+end
+
+local function open_link_at_mouse()
+  local target, buf, win = link_at_mouse()
+  if target then
+    open_target(buf, win, target)
+  elseif buf and vim.bo[buf].buftype == "terminal" then
+    vim.notify("No URL under cursor", vim.log.levels.INFO)
+  elseif vim.api.nvim_get_mode().mode ~= "t" then
+    vim.api.nvim_feedkeys(vim.keycode("<C-LeftMouse>"), "n", false)
+  end
+end
+vim.keymap.set({ "n", "i", "x", "s", "t" }, "<C-LeftMouse>", open_link_at_mouse, { silent = true, desc = "Open link under mouse" })
+vim.keymap.set({ "n", "i", "x", "s", "t" }, "<C-LeftRelease>", "<Nop>", { silent = true })
 
 -- Terminal mode: exit, shell history, and split shortcuts.
 vim.keymap.set('t', '<Esc><Esc>', '<C-\\><C-n>', { noremap = true, silent = true })
