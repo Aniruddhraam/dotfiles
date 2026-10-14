@@ -9,6 +9,7 @@ Two dotfiles in one repo: a single-file Neovim setup and a Zsh setup. The Neovim
 | `init.lua` | The whole Neovim configuration, split into numbered sections (see below) |
 | `after/ftplugin/python.lua` | Python buffer options (4-space indent, conform `formatexpr`) |
 | `after/indent/python.lua` | Python indentation that uses treesitter to ignore brackets and `#` inside strings and comments |
+| `shortcuts.md` | The shortcuts sheet that `?` opens as a read-only tab in any project |
 | `formatters/oxfmt.json` | Global oxfmt style, used when a project has no oxfmt or Prettier config |
 | `lazy-lock.json` | Pinned plugin versions |
 | `zshrc` | The Zsh configuration. Link it to `~/.zshrc` (see [Zsh configuration](#zsh-configuration)) |
@@ -98,7 +99,7 @@ Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvi
 
 ### Keymaps
 
-The leader key is `Space`. Press it and wait to see every mapping in which-key. The most useful ones:
+The leader key is `Space`. Press it and wait to see every mapping in which-key. Press `?` in Normal mode, in any project, to open the full list (`shortcuts.md`) as a read-only, searchable tab; `?`, `q` or `<leader>w` closes it. The most useful ones:
 
 | Key | Action |
 | --- | --- |
@@ -138,7 +139,7 @@ Debugging (Go/delve) uses `<leader>d…`:
 | `du` / `dr` / `de` | Toggle the UI / REPL / evaluate an expression |
 | `dq` | Terminate the session |
 
-Search is literal by default: `/` and `?` are prefixed with `\V`.
+Search is literal by default: `/` (and `?` in Visual mode) are prefixed with `\V`. In Normal mode `?` opens the shortcuts sheet, so search backward with `/` and `N`. In NvimTree, Aerial and Trouble, help is on `g?`.
 
 ### Commands
 

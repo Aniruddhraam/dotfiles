@@ -515,7 +515,7 @@ require("lazy").setup({
           ["j"] = true, ["k"] = true, ["h"] = true, ["l"] = true,
           ["<Up>"] = true, ["<Down>"] = true, ["<Left>"] = true, ["<Right>"] = true,
           ["<CR>"] = true, ["<Tab>"] = true, ["<S-Tab>"] = true,
-          ["<Esc>"] = true, [":"] = true, [" "] = true,
+          ["<Esc>"] = true, [":"] = true, [" "] = true, ["?"] = true,
         }
 
         -- Keep the shortcuts configured on the dashboard buttons.
@@ -815,6 +815,7 @@ require("lazy").setup({
         keymaps = {
           ["<CR>"] = "actions.tree_toggle", -- Collapse or expand the node.
           ["o"] = "actions.jump", -- Jump to the symbol.
+          ["?"] = false, -- `?` opens the shortcuts sheet; help stays on `g?`.
         },
       })
     end
@@ -2031,7 +2032,11 @@ require("lazy").setup({
     "folke/trouble.nvim",
     cmd = { "Trouble" },
     dependencies = { "nvim-tree/nvim-web-devicons" },
-    opts = { modes = { diagnostics = { auto_preview = true } } },
+    opts = {
+      modes = { diagnostics = { auto_preview = true } },
+      -- `?` opens the shortcuts sheet; move help to `g?`, as in NvimTree and Aerial.
+      keys = { ["?"] = false, ["g?"] = "help" },
+    },
     keys = {
       {
         "<leader>xx",
@@ -3563,11 +3568,92 @@ vim.api.nvim_create_user_command("CleanDeletedBuffers", function()
   end
 end, { desc = "Close all unmodified buffers whose underlying file was deleted from disk" })
 
--- Search is literal by default: `/` and `?` are prefixed with `\V` (very nomagic).
+-- Search is literal by default: `/` and `?` are prefixed with `\V` (very nomagic). In Normal mode
+-- `?` opens the shortcuts sheet instead (below); `/` then `N` still searches backward.
 vim.keymap.set('n', '/', '/\\V', { noremap = true, desc = "Literal Search Forward" })
 vim.keymap.set('v', '/', '/\\V', { noremap = true, desc = "Literal Search Forward" })
-vim.keymap.set('n', '?', '?\\V', { noremap = true, desc = "Literal Search Backward" })
 vim.keymap.set('v', '?', '?\\V', { noremap = true, desc = "Literal Search Backward" })
+
+-- Shortcuts sheet: `?` shows shortcuts.md from the config directory as a read-only tab in the code
+-- pane, in any project. It is a scratch buffer, so it never changes the project root, is never
+-- saved in a session, and cannot be written back to the file. It is reloaded from the file on
+-- every open, so edits to shortcuts.md show up without a restart.
+local shortcuts_buf
+local shortcuts_from_dashboard = false
+
+--- Report a blocked edit in the shortcuts sheet.
+local function shortcuts_read_only()
+  vim.notify("The shortcuts sheet is read-only.", vim.log.levels.WARN, { title = "Shortcuts" })
+end
+
+--- Close the shortcuts sheet like a file tab. Opened from the dashboard with no other file open,
+--- it goes back to the dashboard instead of leaving an empty buffer.
+local function close_shortcuts()
+  if not (shortcuts_buf and vim.api.nvim_buf_is_valid(shortcuts_buf)) then return end
+  _G.Close_File(shortcuts_buf)
+  local buf = vim.api.nvim_get_current_buf()
+  local empty = vim.api.nvim_buf_get_name(buf) == "" and vim.bo[buf].buftype == "" and not vim.bo[buf].modified
+    and vim.api.nvim_buf_line_count(buf) == 1 and vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] == ""
+  if shortcuts_from_dashboard and empty then
+    vim.cmd("Alpha")
+    pcall(vim.api.nvim_buf_delete, buf, {})
+  end
+end
+
+--- Open the shortcuts sheet, or close it when it is the current buffer.
+function _G.Toggle_Shortcuts()
+  if shortcuts_buf and vim.api.nvim_get_current_buf() == shortcuts_buf then
+    close_shortcuts()
+    return
+  end
+
+  local path = vim.fn.stdpath("config") .. "/shortcuts.md"
+  local ok, lines = pcall(vim.fn.readfile, path)
+  if not ok then
+    vim.notify("Cannot read " .. path, vim.log.levels.ERROR, { title = "Shortcuts" })
+    return
+  end
+
+  -- Closing the tab unloads the buffer (mini.bufremove), so start a fresh one after that.
+  if shortcuts_buf and not vim.api.nvim_buf_is_loaded(shortcuts_buf) then
+    pcall(vim.api.nvim_buf_delete, shortcuts_buf, { force = true })
+    shortcuts_buf = nil
+  end
+  local buf = shortcuts_buf
+  if not buf then
+    buf = vim.api.nvim_create_buf(true, true)
+    shortcuts_buf = buf
+    vim.api.nvim_buf_set_name(buf, "shortcuts://Shortcuts.md")
+    vim.bo[buf].bufhidden = "hide"
+    vim.bo[buf].swapfile = false
+
+    local function map(modes, lhs, rhs)
+      vim.keymap.set(modes, lhs, rhs, { buffer = buf, silent = true, nowait = true, desc = "Shortcuts (read-only)" })
+    end
+    map("n", "?", close_shortcuts)
+    map("n", "q", close_shortcuts)
+    map("n", "<leader>w", close_shortcuts)
+    map({ "n", "i", "v" }, "<C-s>", shortcuts_read_only)
+    -- 'nomodifiable' blocks every edit, but the custom cut/paste mappings would raise a Lua error
+    -- for it, so replace them with a plain notice.
+    for _, lhs in ipairs({ "d", "x", "<C-x>", "p", "P", "<BS>", "<Del>" }) do
+      map({ "x", "s" }, lhs, shortcuts_read_only)
+    end
+  end
+  shortcuts_from_dashboard = vim.bo.filetype == "alpha"
+
+  vim.bo[buf].buflisted = true
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
+  vim.bo[buf].readonly = true
+  vim.bo[buf].modified = false
+  if vim.bo[buf].filetype ~= "markdown" then vim.bo[buf].filetype = "markdown" end
+
+  _G.Show_Buffer(buf)
+end
+
+vim.keymap.set('n', '?', function() _G.Toggle_Shortcuts() end, { noremap = true, silent = true, desc = "Shortcuts Sheet (Read-only)" })
 
 -- fzf-lua file finders and grep
 vim.keymap.set('n', '<C-f>', function() require('fzf-lua').blines() end, { noremap = true, silent = true, desc = "Fuzzy Find in File (fzf-lua)" })
