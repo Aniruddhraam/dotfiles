@@ -759,6 +759,11 @@ require("lazy").setup({
         auto_restore = false,
         auto_save = true,
         bypass_save_filetypes = { "alpha" },
+        -- Restoring wipes every buffer first. Keep nvim-notify's: wiping a notification still on
+        -- screen leaves nvim-notify holding it, and an identical message (the same project
+        -- restored again within its 5s) fails to merge into it with "No matching notification
+        -- found to replace".
+        preserve_buffer_on_restore = function(bufnr) return vim.bo[bufnr].filetype == "notify" end,
         pre_save_cmds = {
           "NvimTreeClose",
           "AerialClose",
