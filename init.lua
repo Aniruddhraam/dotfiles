@@ -2719,6 +2719,8 @@ local basedpyright_analysis = {
   autoSearchPaths = true,
   useLibraryCodeForTypes = true,
   diagnosticMode = "openFilesOnly",
+  -- Skip suggestions for names not yet imported. They made every completion reply about 3x slower.
+  autoImportCompletions = false,
   typeCheckingMode = "standard",
   reportMissingTypeStubs = "none",
   reportUnknownMemberType = "none",
