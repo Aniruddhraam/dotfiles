@@ -1327,6 +1327,19 @@ require("lazy").setup({
         },
         filters = { dotfiles = false, git_ignored = false },
       })
+
+      -- Re-rooting (a project switch, Close_Project's `cd ~`, a session restore) replaces the
+      -- explorer, but redraws the old one queued when buffers unloaded still run afterwards and
+      -- paint its root over the new tree. Only the current explorer may draw.
+      local ok_core, core = pcall(require, "nvim-tree.core")
+      local ok_renderer, Renderer = pcall(require, "nvim-tree.renderer")
+      if ok_core and ok_renderer and type(Renderer.draw) == "function" then
+        local draw = Renderer.draw
+        Renderer.draw = function(self, ...)
+          if self.explorer ~= core.get_explorer() then return end
+          return draw(self, ...)
+        end
+      end
     end,
   },
 
