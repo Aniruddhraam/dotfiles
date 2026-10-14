@@ -2354,7 +2354,15 @@ require("lazy").setup({
   },
 
   { "echasnovski/mini.bufremove", version = "*", event = "VeryLazy", config = function() require("mini.bufremove").setup() end },
-  { "mechatroner/rainbow_csv", ft = { "csv", "tsv" }, cmd = { "RainbowDelim", "RainbowDelimSimple", "RainbowDelimQuoted", "NoRainbowDelim" } },
+  {
+    "mechatroner/rainbow_csv",
+    ft = { "csv", "tsv" },
+    cmd = { "RainbowDelim", "RainbowDelimSimple", "RainbowDelimQuoted", "NoRainbowDelim" },
+    init = function()
+      -- Stop the "Col N, name" hint from being echoed on every cursor move
+      vim.g.disable_rainbow_hover = 1
+    end,
+  },
   {
     "nvim-lualine/lualine.nvim",
     event = "VeryLazy",
