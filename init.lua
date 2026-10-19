@@ -3386,7 +3386,7 @@ vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
 })
 
 -- =========================================================================
--- TREESITTER: HIGHLIGHTING
+-- TREESITTER: HIGHLIGHTING AND PRUNED INJECTION QUERIES
 -- =========================================================================
 -- Start treesitter for each buffer. The autocmd is defined here, at top level, so it runs before
 -- Neovim's own `syntaxset` FileType autocmd (set up after init.lua), which skips the regex syntax
@@ -3404,6 +3404,161 @@ vim.api.nvim_create_autocmd("FileType", {
     pcall(vim.treesitter.start, args.buf)
   end,
 })
+
+-- nvim-treesitter's JavaScript and TypeScript injection queries include patterns for languages that
+-- have no parser here (styled, graphql, regex, angular and others). They can never inject anything,
+-- yet they were about half the injection-query compile time of the first JS, TS or TSX file of a
+-- session (TSX: 130 ms, 70 ms without them; JS: 52 ms, 22 ms). A copy without those patterns, kept
+-- under stdpath("cache"), comes first on the runtimepath and so replaces the original. It is
+-- rebuilt when nvim-treesitter updates the query, when the installed parsers change (a parser added
+-- later gets its injections back) and when Neovim is upgraded. Remove the folder to force a
+-- rebuild.
+local TS_INSTALL_DIR = vim.fn.stdpath("data") .. "/site"
+local PRUNED_QUERY_DIR = vim.fn.stdpath("cache") .. "/ts-pruned"
+-- Query folders to prune, each with a parser that can compile its injections on their own. Only a
+-- file without an `; inherits:` line can be replaced: Neovim also reads that line from the original
+-- it shadows, so the inherited queries would be compiled twice. That rules out typescript, tsx and
+-- javascript; ecma, the base they share, holds nearly all of the dead patterns.
+local PRUNED_INJECTIONS = {
+  ecma = "javascript",
+  jsx = "javascript",
+}
+
+--- Return the byte ranges of a query's top-level patterns, each including any quantifier or
+--- capture after its closing bracket. Strings and `;` comments are skipped.
+---@param src string Query source
+---@return integer[][] ranges `{ first, last }` pairs, 1-based and inclusive
+local function query_pattern_ranges(src)
+  local ranges, depth, first, i, n = {}, 0, nil, 1, #src
+  while i <= n do
+    local c = src:sub(i, i)
+    if c == ";" then
+      i = src:find("\n", i, true) or n
+    elseif c == '"' then
+      i = i + 1
+      while i <= n and src:sub(i, i) ~= '"' do
+        if src:sub(i, i) == "\\" then i = i + 1 end
+        i = i + 1
+      end
+    elseif c == "(" or c == "[" then
+      if depth == 0 then first = i end
+      depth = depth + 1
+    elseif c == ")" or c == "]" then
+      depth = depth - 1
+      if depth == 0 then
+        local last = i
+        while true do
+          local tail = src:match("^[ \t]*[*+?]?[ \t]*@[%w_.%-]+", last + 1) or src:match("^[*+?]", last + 1)
+          if not tail then break end
+          last = last + #tail
+        end
+        ranges[#ranges + 1] = { first, last }
+        i = last
+      end
+    end
+    i = i + 1
+  end
+  return ranges
+end
+
+--- Whether a parser exists for an injected language, resolved the way Neovim resolves injections:
+--- the name itself, then the language registered for it as a filetype.
+---@param name string Language from a `#set! injection.language` directive
+---@return boolean
+local function injection_has_parser(name)
+  local function has_parser(lang)
+    return lang ~= nil and #vim.api.nvim_get_runtime_file("parser/" .. lang .. ".*", false) > 0
+  end
+  local lang = name:lower():gsub("%-", "_")
+  return has_parser(lang) or has_parser(vim.treesitter.language.get_lang(lang))
+end
+
+--- Remove the patterns that inject a language with no parser. A pattern that takes its language
+--- from the text (an @injection.language capture) stays, since that is only known when it matches.
+---@param src string Query source
+---@return string
+local function prune_injections(src)
+  local parts, kept_from = {}, 1
+  for _, range in ipairs(query_pattern_ranges(src)) do
+    local pattern = src:sub(range[1], range[2])
+    local lang = pattern:match('#set!%s+injection%.language%s+"([^"]+)"')
+    if lang and not pattern:find("@injection.language", 1, true) and not injection_has_parser(lang) then
+      parts[#parts + 1] = src:sub(kept_from, range[1] - 1)
+      kept_from = range[2] + 1
+    end
+  end
+  parts[#parts + 1] = src:sub(kept_from)
+  return table.concat(parts)
+end
+
+--- Whether a query starts with an `; inherits:` modeline (only its leading `;` lines count).
+---@param src string Query source
+---@return boolean
+local function query_inherits(src)
+  for line in vim.gsplit(src, "\n", { plain = true }) do
+    if not line:find("^;") then return false end
+    if line:find("^;+%s*inherits") then return true end
+  end
+  return false
+end
+
+--- Rebuild the pruned copies when their sources, the installed parsers or Neovim have changed.
+--- A copy is written only when it drops something and still compiles; otherwise the original query
+--- is used.
+local function refresh_pruned_queries()
+  -- This runs on every launch, so it only stats files: the Neovim binary's mtime stands in for its
+  -- version (vim.version() costs about 2 ms), and the install folder lists the added parsers (those
+  -- bundled with Neovim change only with the binary).
+  local nvim = vim.uv.fs_stat(vim.v.progpath)
+  local stamp_lines = { "v1", nvim and tostring(nvim.mtime.sec) or "-" }
+  for name in vim.spairs(PRUNED_INJECTIONS) do
+    local stat = vim.uv.fs_stat(TS_INSTALL_DIR .. "/queries/" .. name .. "/injections.scm")
+    stamp_lines[#stamp_lines + 1] = name .. " " .. (stat and ("%d.%d %d"):format(stat.mtime.sec, stat.mtime.nsec, stat.size) or "-")
+  end
+  local parsers = {}
+  for name in vim.fs.dir(TS_INSTALL_DIR .. "/parser") do parsers[#parsers + 1] = name end
+  table.sort(parsers)
+  stamp_lines[#stamp_lines + 1] = table.concat(parsers, " ")
+  local stamp = table.concat(stamp_lines, "\n")
+
+  local stamp_path = PRUNED_QUERY_DIR .. "/stamp"
+  local file = io.open(stamp_path, "r")
+  local previous = file and file:read("*a")
+  if file then file:close() end
+  if previous == stamp then return end
+
+  for name, lang in pairs(PRUNED_INJECTIONS) do
+    local out_path = PRUNED_QUERY_DIR .. "/queries/" .. name .. "/injections.scm"
+    file = io.open(TS_INSTALL_DIR .. "/queries/" .. name .. "/injections.scm", "r")
+    local src = file and file:read("*a")
+    if file then file:close() end
+    local pruned = src and not query_inherits(src) and prune_injections(src)
+    if pruned and pruned ~= src and pcall(vim.treesitter.query.parse, lang, pruned) then
+      vim.fn.mkdir(vim.fs.dirname(out_path), "p")
+      file = assert(io.open(out_path, "w"))
+      file:write(pruned)
+      file:close()
+    else
+      vim.uv.fs_unlink(out_path)
+    end
+  end
+  -- A copy of a folder no longer listed above would keep shadowing its original.
+  for name in vim.fs.dir(PRUNED_QUERY_DIR .. "/queries") do
+    if not PRUNED_INJECTIONS[name] then
+      vim.uv.fs_unlink(PRUNED_QUERY_DIR .. "/queries/" .. name .. "/injections.scm")
+    end
+  end
+  vim.fn.mkdir(PRUNED_QUERY_DIR, "p")
+  file = assert(io.open(stamp_path, "w"))
+  file:write(stamp)
+  file:close()
+end
+
+-- Added here, after lazy.nvim's setup (which resets the runtimepath) and nvim-treesitter's (which
+-- puts its install folder first), so the copies come before the originals.
+if pcall(refresh_pruned_queries) then
+  vim.opt.rtp:prepend(PRUNED_QUERY_DIR)
+end
 
 -- =========================================================================
 -- EXTERNAL FILE CHANGES AND DELETIONS
