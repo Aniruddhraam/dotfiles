@@ -2652,9 +2652,23 @@ require("lazy").setup({
   },
 
 }, {
-  checker = { enabled = true, notify = false, frequency = 86400 },
+  -- The update checker is started below, 10 s after launch, rather than by lazy.nvim itself.
+  checker = { enabled = false, notify = false, frequency = 86400 },
   change_detection = { notify = false },
   rocks = { enabled = false }
+})
+
+-- Start lazy.nvim's update checker 10 s after launch. Started by lazy.nvim right after VeryLazy, it
+-- ran `git log` in every plugin folder on each launch (61 git processes, about 45 ms of CPU) while
+-- the dashboard was still animating, even though the network check itself runs only once a day.
+-- This calls the same function lazy.nvim calls for `checker.enabled`, so the daily check, its
+-- progress line and the pending-update log in :Lazy all work as before.
+vim.api.nvim_create_autocmd("User", {
+  pattern = "VeryLazy",
+  once = true,
+  callback = function()
+    vim.defer_fn(function() require("lazy.manage.checker").start() end, 10000)
+  end,
 })
 
 -- =========================================================================
