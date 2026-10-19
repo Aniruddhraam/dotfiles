@@ -304,7 +304,9 @@ require("lazy").setup({
 
       --- Save the active project's session under its own root, then tear the project down.
       _G.Close_Project = function()
-        pcall(function() require("aerial").close() end)
+        -- Aerial loads on first use, so there is nothing to close until it has been loaded.
+        -- Requiring it here would load it just to close nothing.
+        if package.loaded["aerial"] then pcall(function() require("aerial").close() end) end
         pcall(function() require("nvim-tree.api").tree.close() end)
         vim.cmd("silent! wall") -- Save modified buffers before the session is written.
         -- Name the session explicitly after the project root, so it cannot depend on a stale cwd.
@@ -766,7 +768,8 @@ require("lazy").setup({
         preserve_buffer_on_restore = function(bufnr) return vim.bo[bufnr].filetype == "notify" end,
         pre_save_cmds = {
           "NvimTreeClose",
-          "AerialClose",
+          -- Aerial loads on first use; its AerialClose command would load it on every save.
+          function() if package.loaded["aerial"] then pcall(vim.cmd, "AerialClose") end end,
           function() pcall(vim.cmd, "Trouble close") end,
           clean_unnamed_buffers,
         },
@@ -818,7 +821,8 @@ require("lazy").setup({
   -- Code outline sidebar (aerial.nvim)
   {
     "stevearc/aerial.nvim",
-    event = "VeryLazy",
+    -- Loads on first use (<leader>a, which requires it, or an Aerial command) instead of at
+    -- startup. Code that only closes the outline checks package.loaded first, so it never loads it.
     cmd = { "AerialToggle", "AerialOpen", "AerialOpenAll", "AerialClose", "AerialCloseAll", "AerialNext", "AerialPrev" },
     dependencies = {
        "nvim-treesitter/nvim-treesitter",
@@ -892,9 +896,21 @@ require("lazy").setup({
   -- Fuzzy finder (fzf-lua)
   {
     "ibhagwan/fzf-lua",
-    event = "VeryLazy",
+    -- Loads on first use (a picker key or :FzfLua) instead of at startup. Its config registers it
+    -- as the vim.ui.select picker, so until then a stub loads it on the first select call.
     cmd = "FzfLua",
     dependencies = { "nvim-tree/nvim-web-devicons" },
+    init = function()
+      local builtin_select = vim.ui.select
+      vim.ui.select = function(...)
+        local current = vim.ui.select
+        require("lazy").load({ plugins = { "fzf-lua" } })
+        -- dressing.nvim may have wrapped this stub. If loading did not replace vim.ui.select, use
+        -- the built-in picker instead of going round through the stub again.
+        if vim.ui.select == current then return builtin_select(...) end
+        return vim.ui.select(...)
+      end
+    end,
     config = function()
       local fzf = require("fzf-lua")
 
@@ -1034,8 +1050,9 @@ require("lazy").setup({
           end
         end
 
-        -- 3. With no code file open, close Aerial so it does not take over the screen.
-        if not has_code_win then
+        -- 3. With no code file open, close Aerial so it does not take over the screen. It loads on
+        -- first use, so it only needs closing once it has been loaded.
+        if not has_code_win and package.loaded["aerial"] then
           pcall(function() require("aerial").close() end)
         end
 
@@ -2330,12 +2347,13 @@ require("lazy").setup({
     end,
   },
 
-  -- Jupyter: inline cell execution and output (molten-nvim)
+  -- Jupyter: inline cell execution and output (molten-nvim). It loads on its commands and keys
+  -- only: a python filetype trigger loaded it, with image.nvim, alongside the first Python buffer
+  -- of every session, although the remote plugin does nothing until a kernel is started.
   {
     "benlubas/molten-nvim",
     version = "^1.0.0",
     dependencies = { "3rd/image.nvim" },
-    ft = { "python", "ipynb" },
     cmd = { "MoltenInit", "MoltenEvaluateCell", "MoltenReevaluateCell", "MoltenDelete", "MoltenShowOutput" },
     build = ":UpdateRemotePlugins",
     init = function()
@@ -2400,8 +2418,11 @@ require("lazy").setup({
   {
     "akinsho/toggleterm.nvim",
     version = "*",
-    event = "VeryLazy",
+    -- Loads on first use instead of at startup: one of its commands, <C-\>, or a terminal helper in
+    -- section 7, which requires it. Once loaded it maps <C-\> itself (Normal and Insert mode, and
+    -- Terminal mode in its own terminals), replacing this stub.
     cmd = { "ToggleTerm", "ToggleTermToggleAll", "TermExec" },
+    keys = { { [[<c-\>]], mode = { "n", "i" }, desc = "Toggle Terminal" } },
     config = function()
       require("toggleterm").setup({
         size = 20, open_mapping = [[<c-\>]], direction = "float", shade_terminals = false, float_opts = { border = "curved" },
