@@ -5,7 +5,7 @@
 --   1. Plugin manager bootstrap
 --   2. Plugin specifications
 --   3. LSP servers
---   4. Core editor settings, autocmds, and file/layout guards
+--   4. Core editor settings, autocmds, file/layout guards, and treesitter highlighting
 --   5. Commands and keymaps (navigation, selection, clipboard)
 --   6. VS Code-style copy, cut, and paste
 --   7. Terminals (toggleterm, lazygit)
@@ -1412,34 +1412,37 @@ require("lazy").setup({
     end
   },
 
-  -- Syntax highlighting (treesitter)
+  -- Treesitter parsers (nvim-treesitter). The main branch only installs parsers and queries;
+  -- section 4 starts highlighting for each buffer.
   {
     "nvim-treesitter/nvim-treesitter",
-    event = "VeryLazy",
+    -- Loaded at startup, not at VeryLazy: its filetype table (typescriptreact to tsx, tex to latex,
+    -- Markdown fence names such as ts or py) has to be registered before the first FileType, also
+    -- for a file opened from the shell. It is cheap to load once install() is skipped (below).
+    lazy = false,
     build = ":TSUpdate",
     config = function()
-      require("nvim-treesitter").setup({
-        install_dir = vim.fn.stdpath("data") .. "/site",
-      })
-      require("nvim-treesitter").install({
+      local install_dir = vim.fn.stdpath("data") .. "/site"
+      require("nvim-treesitter").setup({ install_dir = install_dir })
+      -- install() takes about 4 ms even when every parser is present, so it only runs for parsers
+      -- whose library or queries are missing (a first launch on a new machine), after the first
+      -- screen.
+      local missing = vim.tbl_filter(function(lang)
+        return not (vim.uv.fs_stat(install_dir .. "/parser/" .. lang .. ".so") and vim.uv.fs_stat(install_dir .. "/queries/" .. lang))
+      end, {
         "javascript", "typescript", "tsx", "jsdoc",
         "c", "cpp", "python", "html",
         "css", "lua", "markdown", "rust", "toml",
         "go", "gomod", "gowork", "gosum", "gotmpl",
         "java", "latex", "bibtex",
       })
-
-      -- The main branch of nvim-treesitter only installs parsers and does not enable highlighting,
-      -- so start treesitter explicitly for each buffer.
-      vim.api.nvim_create_autocmd("FileType", {
-        callback = function(args)
-          local ok = pcall(vim.treesitter.start, args.buf)
-          if ok then
-            -- Turn off legacy regex syntax highlighting while treesitter is active.
-            vim.bo[args.buf].syntax = ""
-          end
-        end,
-      })
+      if #missing > 0 then
+        vim.api.nvim_create_autocmd("User", {
+          pattern = "VeryLazy",
+          once = true,
+          callback = function() require("nvim-treesitter").install(missing) end,
+        })
+      end
     end,
   },
 
@@ -3379,6 +3382,26 @@ vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
         _G.Fix_Sidebar_Widths()
       end
     end)
+  end,
+})
+
+-- =========================================================================
+-- TREESITTER: HIGHLIGHTING
+-- =========================================================================
+-- Start treesitter for each buffer. The autocmd is defined here, at top level, so it runs before
+-- Neovim's own `syntaxset` FileType autocmd (set up after init.lua), which skips the regex syntax
+-- file once b:ts_highlight is set. Started after it, from a VeryLazy plugin config, treesitter only
+-- cleared a regex syntax that had just been loaded: 2-25 ms of wasted work on every file open, most
+-- for CSS, Java and Rust. Large files (see BinaryGuard) get neither engine: b:ts_highlight = false
+-- is enough to keep `syntaxset` from loading the regex syntax.
+vim.api.nvim_create_autocmd("FileType", {
+  group = vim.api.nvim_create_augroup("TreesitterStart", { clear = true }),
+  callback = function(args)
+    if vim.b[args.buf].large_file then
+      vim.b[args.buf].ts_highlight = false
+      return
+    end
+    pcall(vim.treesitter.start, args.buf)
   end,
 })
 
