@@ -2726,7 +2726,13 @@ vim.api.nvim_create_autocmd("User", {
 
 -- Completion capabilities are registered by blink.cmp itself (plugin/blink-cmp.lua) when it loads.
 
--- TypeScript / JavaScript (vtsls)
+-- TypeScript / JavaScript (vtsls). vtsls drives TypeScript's JS language service (tsserver) and
+-- bundles TypeScript 5.9. TypeScript 7's native server (`tsc --lsp`) answers faster but has no
+-- refactor code actions in 7.0 (extract, move to file, convert export, infer return type), and
+-- TypeScript 7 ships no tsserver, so vtsls stays and runs on the newest JS line instead: 6.x,
+-- installed in ~/.local/share/vtsls-tsdk (updated by `upall`). A project's own TypeScript still
+-- wins (autoUseWorkspaceTsdk); one on TypeScript 7 falls back to this 6.x.
+local vtsls_tsdk = vim.fn.expand("~/.local/share/vtsls-tsdk/node_modules/typescript/lib")
 vim.lsp.config("vtsls", {
   cmd = { "vtsls", "--stdio" },
   filetypes = {
@@ -2742,6 +2748,7 @@ vim.lsp.config("vtsls", {
     vtsls = {
       enableMoveToFileCodeAction = true,
       autoUseWorkspaceTsdk = true,
+      typescript = { globalTsdk = vim.uv.fs_stat(vtsls_tsdk .. "/tsserver.js") and vtsls_tsdk or nil },
       experimental = {
         completion = {
           enableServerSideFuzzyMatch = true,
@@ -2801,7 +2808,9 @@ vim.lsp.config("oxlint", {
 })
 
 vim.lsp.config("clangd", {
-  cmd = { "clangd" },
+  -- Background indexing runs at the lowest thread priority, so it never competes with editing,
+  -- and preambles (PCHs) stay in memory instead of being written to and read back from disk.
+  cmd = { "clangd", "--background-index-priority=background", "--pch-storage=memory" },
   filetypes = { "c", "cpp", "objc", "objcpp" },
   root_markers = { "compile_commands.json", "compile_flags.txt", ".clangd", ".git" },
 })
@@ -2858,7 +2867,21 @@ vim.lsp.config("basedpyright", {
     },
   },
 })
-vim.lsp.config("rust_analyzer", { cmd = { "rust-analyzer" }, filetypes = { "rust" }, root_markers = { "Cargo.toml", "rust-project.json", ".git" }, settings = { ["rust-analyzer"] = { checkOnSave = true, check = { command = "check" }, cargo = { allFeatures = true } } } })
+-- Rust (rust-analyzer). `cargo.features = "all"` replaces the legacy `cargo.allFeatures` key.
+-- `cargo.targetDir = true` gives its check runs their own target directory (target/rust-analyzer),
+-- so they no longer wait on, or invalidate, the Cargo build lock of `cargo build` / `cargo run`.
+vim.lsp.config("rust_analyzer", {
+  cmd = { "rust-analyzer" },
+  filetypes = { "rust" },
+  root_markers = { "Cargo.toml", "rust-project.json", ".git" },
+  settings = {
+    ["rust-analyzer"] = {
+      checkOnSave = true,
+      check = { command = "check" },
+      cargo = { features = "all", targetDir = true },
+    },
+  },
+})
 
 -- Go (gopls, resolved from GOPATH; avoids the Mason copy, which Windows Device Guard can block)
 local function get_gopls_cmd()
@@ -2880,8 +2903,11 @@ vim.lsp.config("gopls", {
   cmd = get_gopls_cmd(),
   filetypes = { "go", "gomod", "gowork", "gotmpl" },
   root_markers = { "go.mod", "go.work", ".git" },
+  -- Semantic tokens stay off (gopls' default): treesitter already highlights Go, so they only
+  -- added a token request and a second highlight pass on every edit. The unusedparams,
+  -- unusedvariable and unusedwrite analyses are on by default in gopls 0.24, so they aren't listed.
   settings = {
-    gopls = { completeUnimported = true, usePlaceholders = true, analyses = { unusedparams = true, unusedvariable = true, unusedwrite = true }, semanticTokens = true },
+    gopls = { completeUnimported = true, usePlaceholders = true },
   },
 })
 
@@ -2930,7 +2956,8 @@ vim.lsp.enable("clangd")
 vim.lsp.enable("basedpyright")
 vim.lsp.enable("rust_analyzer")
 vim.lsp.enable("gopls")
-vim.lsp.enable("jdtls")
+-- jdtls isn't always installed; enabling it anyway logs a failed start for every Java buffer.
+if vim.fn.executable("jdtls") == 1 then vim.lsp.enable("jdtls") end
 vim.lsp.enable("texlab")
 vim.lsp.enable("taplo")
 
