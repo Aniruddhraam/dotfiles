@@ -2406,13 +2406,56 @@ require("lazy").setup({
         if tokyonight_theme.inactive.c then tokyonight_theme.inactive.c.bg = "NONE" end
       end
 
+      -- Branch and diff counts come from gitsigns, which already tracks them, instead of lualine
+      -- watching .git/HEAD and running its own `git diff` for every buffer.
+      local function gitsigns_diff()
+        local status = vim.b.gitsigns_status_dict
+        if status then
+          return { added = status.added, modified = status.changed, removed = status.removed }
+        end
+      end
+
       require("lualine").setup({
         options = {
           theme = tokyonight_theme,
           component_separators = { left = '', right = '' },
           section_separators = { left = '', right = '' },
-        }
+          -- No timers: by default lualine re-renders every 1000 ms and polls its refresh queue
+          -- every 16 ms, even when idle. A 0 interval makes the render timers fire once at setup
+          -- and stop. The poller can't be 0 (lualine resets anything <= 0 to 16 ms), so it
+          -- repeats every 2^31 - 1 ms (24.8 days): it runs once at setup and then stays idle. The
+          -- statusline is redrawn only by the events below; lualine's own event list is cut to
+          -- one event, since its handlers only queue a refresh for that poller.
+          refresh = { statusline = 0, tabline = 0, winbar = 0, refresh_time = 2 ^ 31 - 1, events = { "VimResized" } },
+        },
+        sections = {
+          lualine_b = { { "b:gitsigns_head", icon = "" }, { "diff", source = gitsigns_diff }, "diagnostics" },
+        },
       })
+
+      -- Redraw the statusline when something it shows can change: mode, buffer and window
+      -- switches, the cursor position (location and progress are computed in Lua), edits and
+      -- saves, filetype and format, diagnostics, and gitsigns' branch and hunk updates. Bursts in
+      -- one event-loop tick (e.g. BufEnter + WinEnter + CursorMoved) collapse into one redraw.
+      local pending = false
+      local function refresh_statusline()
+        if pending then return end
+        pending = true
+        vim.schedule(function()
+          pending = false
+          pcall(require("lualine").refresh, { scope = "tabpage", place = { "statusline" }, trigger = "autocmd", force = true })
+        end)
+      end
+      local group = vim.api.nvim_create_augroup("LualineEventRefresh", { clear = true })
+      vim.api.nvim_create_autocmd({
+        "ModeChanged", "BufEnter", "WinEnter", "WinClosed", "CursorMoved", "CursorMovedI",
+        "BufWritePost", "BufModifiedSet", "FileType", "DiagnosticChanged", "DirChanged",
+        "FocusGained", "VimResized", "SessionLoadPost", "FileChangedShellPost",
+      }, { group = group, callback = refresh_statusline })
+      vim.api.nvim_create_autocmd("OptionSet", {
+        group = group, pattern = { "fileformat", "fileencoding", "readonly" }, callback = refresh_statusline,
+      })
+      vim.api.nvim_create_autocmd("User", { group = group, pattern = "GitSignsUpdate", callback = refresh_statusline })
     end,
   },
   { "echasnovski/mini.pairs", version = "*", event = "VeryLazy", config = function() require("mini.pairs").setup() end },
