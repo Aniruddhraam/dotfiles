@@ -2627,17 +2627,18 @@ require("lazy").setup({
   },
 
   -- Scrollbar showing diagnostics and git changes (toggle: <leader>us)
+  -- v2, from its pre-release branch. On 2026-11-16 v2 replaces v1 on main
+  -- (https://github.com/petertriho/nvim-scrollbar/issues/121); drop `branch` then, since
+  -- refactor/v2 may be deleted once it is merged.
   {
     "petertriho/nvim-scrollbar",
+    branch = "refactor/v2",
     event = "VeryLazy",
     keys = { { "<leader>us", "<cmd>ScrollbarToggle<CR>", desc = "Toggle Scrollbar" } },
     opts = {
-      handlers = {
-        cursor = true,
-        diagnostic = true,
-        gitsigns = true,
-        search = false,
-      },
+      -- Cursor and diagnostic marks are on by default. Search matches and native marks are new in
+      -- v2 and stay off, as in v1.
+      providers = { gitsigns = true, search = false, marks = false },
     },
   },
 
