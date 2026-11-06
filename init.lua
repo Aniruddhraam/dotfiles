@@ -1301,15 +1301,22 @@ require("lazy").setup({
         filesystem_watchers = {
           enable = true,
           debounce_delay = 150,
-          ignore_dirs = {
-            "node_modules",
-            "target",
-            "%.git",
-            "%.venv",
-            "build",
-            "dist",
-            "__pycache__",
-          },
+          -- A list here would be Vim regexes passed to vim.fn.match(), so a Lua pattern such as
+          -- "%.venv" never matched and bare names matched anywhere in a path. Compare whole path
+          -- components instead (the directory itself or any parent).
+          ignore_dirs = (function()
+            local ignored = {
+              ["node_modules"] = true, ["target"] = true, [".git"] = true, [".venv"] = true,
+              ["build"] = true, ["dist"] = true, ["__pycache__"] = true,
+              [".ccls-cache"] = true, [".zig-cache"] = true,
+            }
+            return function(path)
+              for part in path:gmatch("[^/\\]+") do
+                if ignored[part] then return true end
+              end
+              return false
+            end
+          end)(),
           -- 0 means unlimited. It keeps the watcher from being disabled during large directory
           -- deletions (needed on Windows; matches the Linux default).
           max_events = 0,
