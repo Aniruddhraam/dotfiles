@@ -249,7 +249,7 @@ Without `zshenv`, zsh simply runs `/etc/zshrc` first as usual.
 | `dnsstatus` | Show the active DNS mode and time a lookup |
 | `uv add <pkg>` | Outside any project, first creates a bare `pyproject.toml`, then runs the normal `uv add`. Everything else passes straight through. |
 | `uv run <name>` | Runs `<name>.py` when `<name>` is not a file, a command on `PATH` or a project script, so `uv run Q10` runs `Q10.py` |
-| `upall` | Runs the `dnf`, `gup`, `pnpm`, `rustup`, `cargo install-update`, `uv tool` and `flatpak` updates in turn and lists any step that failed |
+| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup`, pnpm itself and its global packages (`--latest`), vtsls's TypeScript 6, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool`, the compiled black build, duckdb and `flatpak` |
 | `clone <repo>` | `git clone`, then `cd` into the result. Takes a URL, `owner/repo`, or a bare name for `github.com/Aniruddhraam/<repo>`; extra arguments go to `git clone`. |
 
 The DNS helpers rewrite `/etc/resolv.conf` with `sudo`. They assume `dnscrypt-proxy` runs in both modes and only the resolver file changes.
@@ -302,7 +302,8 @@ The config prefers compiled tools over Neovim's built-in or scripted equivalents
 | `fd` | `find` | Parallel directory walk with sane ignore defaults | Directory and project browsing (`<leader>d`, `<leader>fp`) |
 | `fzf` | Vimscript/Lua pickers | A compiled Go finder that streams results without building Lua tables | All of fzf-lua |
 | `oxlint` / `oxfmt` | ESLint / Prettier | Rust implementations, usually an order of magnitude faster | JS/TS linting and formatting |
-| `vtsls` on TypeScript 7 | `typescript-language-server` on the JS compiler | Uses the native Go TypeScript compiler | JS/TS language server |
+| `vtsls` on TypeScript 6 | `typescript-language-server` | Wraps VS Code's TypeScript extension directly, with server-side fuzzy matching. It runs on TypeScript 6.x, the newest release that ships `tsserver`: TypeScript 7's native `tsc --lsp` has no refactor code actions yet | JS/TS language server |
+| mypyc-compiled `black` | Pure-Python `black` | About 1.6x faster per format. `upall` builds it with mypyc when PyPI has no compiled wheel for the system Python | Python formatting |
 | `black`, `jupytext` via `uv` | `pip` installs | Isolated tool environments, installed in seconds | Python formatting and notebooks |
 | `magick` | `convert` (ImageMagick 6) | Current ImageMagick 7 CLI | image.nvim |
 
@@ -349,10 +350,11 @@ Install Rust with [rustup](https://rustup.rs), then add the components and the C
 
 ```sh
 rustup component add rust-analyzer rustfmt clippy
-cargo install --locked texlab taplo-cli pqrs
+cargo install --locked taplo-cli pqrs
+cargo install --locked --git https://github.com/latex-lsp/texlab --tag v5.26.0 texlab
 ```
 
-`cargo binstall` (if installed) downloads prebuilt binaries instead of compiling: `cargo binstall texlab taplo-cli pqrs`. `pqrs` is optional and only used to preview parquet files. Make sure `~/.cargo/bin` is on `PATH`. The config prepends it automatically.
+texlab stopped publishing to crates.io at 4.3.2, so it is built from its latest GitHub release tag instead; `upall` rebuilds it whenever a newer release appears. `cargo binstall` (if installed) downloads prebuilt binaries instead of compiling: `cargo binstall taplo-cli pqrs`. `pqrs` is optional and only used to preview parquet files. Make sure `~/.cargo/bin` is on `PATH`. The config prepends it automatically.
 
 ### Go tools (`go install` and `gup`)
 
@@ -368,7 +370,7 @@ gup list        # show installed Go binaries and their versions
 gup update      # update all of them to the latest release
 ```
 
-`gofmt` ships with Go itself. Binaries land in `~/go/bin`, which the config adds to `PATH`.
+`gofmt` ships with Go itself. Binaries land in `~/go/bin`, which the config adds to `PATH`. `upall` also keeps the Go toolchain current: it downloads a newer release through its `golang.org/dl` wrapper into `~/sdk/<version>` and points `~/.local/bin/go` and `gofmt` at it, before `gup update` rebuilds the Go tools.
 
 ### JavaScript tooling (`pnpm`)
 
@@ -376,28 +378,38 @@ Install `pnpm` first (`dnf install pnpm`, or the [standalone script](https://pnp
 
 ```sh
 pnpm add -g typescript @vtsls/language-server basedpyright oxlint oxfmt
+pnpm --dir ~/.local/share/vtsls-tsdk add 'typescript@^6'
 ```
 
-This gives `vtsls`, `basedpyright-langserver`, `oxlint` and `oxfmt` in `~/.local/share/pnpm/bin`. Update them with `pnpm update -g`.
+This gives `vtsls`, `basedpyright-langserver`, `oxlint` and `oxfmt` in `~/.local/share/pnpm/bin`. The second line installs the TypeScript 6 engine vtsls runs on (the global `typescript` is 7, which has no `tsserver`); without it, vtsls falls back to its bundled 5.9. Update them with `upall`, which runs `pnpm update -g --latest`: plain `pnpm update -g` stays inside each package's caret range, which for a 0.x version such as oxfmt never leaves the minor version. pnpm also waits until a release is about a day old before installing it.
 
 ### Python tools (`uv`)
 
 Install [uv](https://docs.astral.sh/uv/) (`dnf install uv` or its install script). Each tool gets its own isolated environment:
 
 ```sh
-uv tool install black
+uv tool install --python /usr/bin/python3 black
 uv tool install jupytext
 uv tool install jupyter-core   # provides the `jupyter` command used for notebook upgrades
 uv tool install ruff           # optional
 ```
 
-Update everything with `uv tool upgrade --all`. If `jupytext` is missing, the config falls back to `uvx jupytext` automatically.
+Update everything with `upall` (it runs `uv tool upgrade --all`). If `jupytext` is missing, the config falls back to `uvx jupytext` automatically.
+
+`black --version` should say `compiled: yes`. PyPI only has mypyc-compiled black wheels for the Python versions black has released for, and the pure-Python fallback is about 1.6x slower. When the system Python is newer than that (3.15 with black 26.10.1), build the compiled version from source:
+
+```sh
+HATCH_BUILD_HOOKS_ENABLE=1 MYPYC_OPT_LEVEL=3 MYPYC_DEBUG_LEVEL=0 \
+  uv tool install --reinstall --no-cache --python /usr/bin/python3 --no-binary-package black black
+```
+
+`upall` does this by itself whenever `black` is not the compiled build on the system Python, and switches back to the published wheels once they exist.
 
 ### Optional tools
 
 - **Java.** `jdtls` and `google-java-format` are only needed for Java work. Download the [Eclipse JDT LS](https://github.com/eclipse-jdtls/eclipse.jdt.ls) release and the [google-java-format](https://github.com/google/google-java-format/releases) jar, and put wrapper scripts named `jdtls` and `google-java-format` on `PATH`.
 - **Document previews.** `.docx` files are converted to PDF with LibreOffice: `sudo dnf install -y libreoffice-writer` provides `soffice`.
-- **Data previews.** `duckdb` is the preferred previewer for parquet and other data files. Download the CLI from [duckdb.org](https://duckdb.org/docs/installation/) into `~/.local/bin`. The config falls back to `pqrs`, then `parquet-tools`.
+- **Data previews.** `duckdb` is the preferred previewer for parquet and other data files. Install the CLI with its official script (`curl https://install.duckdb.org | sh`), which links it into `~/.local/bin`; `upall` reruns it when a newer release is out. The config falls back to `pqrs`, then `parquet-tools`.
 
 ### Verify
 

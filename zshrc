@@ -1132,17 +1132,104 @@ uv() {
   command uv "$@"
 }
 
-# Update everything in one go; a failing step doesn't stop the rest, failures are listed at the end
+# Latest release tag of a GitHub repo (e.g. v5.26.0); prints nothing and fails on error.
+_gh_latest_tag() {
+  local tag
+  tag=$(curl -fsSL "https://api.github.com/repos/$1/releases/latest" | jq -r '.tag_name // empty') &&
+    [[ -n $tag ]] && print -r -- "$tag"
+}
+
+# Go toolchain: golang.org/dl wrappers download it into ~/sdk/<version>, and ~/.local/bin/go and
+# gofmt link to the active one. Runs before `gup update` so the Go tools are rebuilt with it.
+_upall_go() {
+  (( $+commands[go] )) || return 0
+  local latest current
+  latest=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1) && [[ $latest == go* ]] || return 1
+  current=$(go env GOVERSION) || return 1
+  if [[ $latest == $current ]]; then print "go: $current is the latest"; return 0; fi
+  go install "golang.org/dl/$latest@latest" && "$HOME/go/bin/$latest" download || return 1
+  ln -sfn "$HOME/sdk/$latest/bin/go" "$HOME/.local/bin/go" &&
+    ln -sfn "$HOME/sdk/$latest/bin/gofmt" "$HOME/.local/bin/gofmt" || return 1
+  print "go: $current -> $latest (~/sdk/$current and ~/go/bin/$current are no longer used)"
+}
+
+# vtsls runs TypeScript's JS language service (tsserver). TypeScript 7 is a native compiler that
+# ships no tsserver, so vtsls gets the last JS line (6.x) from its own folder (see the vtsls
+# config in ~/.config/nvim/init.lua). Updates stay within ^6.
+_upall_vtsls_tsdk() {
+  [[ -f $HOME/.local/share/vtsls-tsdk/package.json ]] || return 0
+  pnpm --dir "$HOME/.local/share/vtsls-tsdk" update
+}
+
+# texlab stopped publishing to crates.io at 4.3.2, so `cargo install-update` never sees its
+# releases. Build the latest GitHub release tag with cargo when it is newer than the installed one.
+_upall_texlab() {
+  (( $+commands[texlab] )) || return 0
+  local latest current
+  latest=$(_gh_latest_tag latex-lsp/texlab) || return 1
+  current=v${${(z)"$(texlab --version)"}[2]}
+  if [[ $latest == $current ]]; then print "texlab: $current is the latest"; return 0; fi
+  cargo install --locked --force --git https://github.com/latex-lsp/texlab --tag "$latest" texlab
+}
+
+# black is fastest as its mypyc-compiled build, but PyPI only has compiled wheels for the Python
+# versions black has released for (none for 3.15 up to 26.10.1), and the pure-Python fallback
+# formats about 1.6x slower. black runs on the system Python (/usr/bin/python3). When the installed
+# black is not compiled, or runs on another Python, reinstall it from the published wheels first;
+# if there is still no compiled wheel for this Python, build it from source with mypyc (about
+# 40 s). That build records `--no-binary-package black` in uv's receipt, so a later
+# `uv tool upgrade` builds plain Python again; this step then recompiles it, and the wheel
+# reinstall clears the option once compiled wheels for this Python appear.
+_black_compiled_on_system_python() {
+  local want info
+  want=$(/usr/bin/python3 -c 'import platform; print(platform.python_version())') || return 1
+  info=$(black --version 2>/dev/null) || return 1
+  [[ $info == *'compiled: yes'* && $info == *"(CPython) $want"* ]]
+}
+
+_upall_black() {
+  (( $+commands[black] )) || return 0
+  _black_compiled_on_system_python && { print "black: compiled build on the system Python"; return 0 }
+  uv tool install --reinstall --python /usr/bin/python3 black || return 1
+  _black_compiled_on_system_python && return 0
+  print "black: no compiled wheel for this Python, building it with mypyc"
+  HATCH_BUILD_HOOKS_ENABLE=1 MYPYC_OPT_LEVEL=3 MYPYC_DEBUG_LEVEL=0 \
+    uv tool install --reinstall --no-cache --python /usr/bin/python3 --no-binary-package black black ||
+    return 1
+  _black_compiled_on_system_python
+}
+
+# duckdb comes from its official installer, which keeps each version in ~/.duckdb/cli/<version>
+# and points ~/.duckdb/cli/latest (linked from ~/.local/bin/duckdb) at the newest.
+_upall_duckdb() {
+  (( $+commands[duckdb] )) || return 0
+  local latest current
+  latest=$(curl -fsSL https://duckdb.org/data/latest_stable_version.txt) && [[ -n $latest ]] || return 1
+  current=${${(z)"$(duckdb --version)"}[1]}
+  if [[ ${latest#v} == ${current#v} ]]; then print "duckdb: $current is the latest"; return 0; fi
+  curl -fsSL https://install.duckdb.org | sh
+}
+
+# Update everything in one go; a failing step doesn't stop the rest, failures are listed at the end.
+# pnpm records each global package with a caret range, and `pnpm update` stays inside it (for a
+# 0.x version, `^0.67.0` never leaves 0.67.x), so `--latest` is what moves them to new releases.
+# pnpm still skips versions published less than a day ago (its supply-chain release-age check).
 upall() {
   local step
   local -a failed
   for step in \
     'sudo dnf upgrade --refresh -y' \
+    '_upall_go' \
     'gup update' \
-    'pnpm update -g oxfmt oxlint @oxc-node/cli @vtsls/language-server typescript basedpyright' \
+    'pnpm self-update' \
+    'pnpm update -g --latest oxfmt oxlint @oxc-node/cli @vtsls/language-server typescript basedpyright' \
+    '_upall_vtsls_tsdk' \
     'rustup update' \
     'cargo install-update -a' \
+    '_upall_texlab' \
     'uv tool upgrade --all' \
+    '_upall_black' \
+    '_upall_duckdb' \
     'flatpak update -y'
   do
     print -P "%F{blue}==> $step%f"
