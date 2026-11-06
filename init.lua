@@ -5320,6 +5320,33 @@ vim.keymap.set({ 'v', 'x' }, '<M-K>',   'k', { noremap = true, silent = true, de
 -- Join lines: J is taken by downward selection, so joining lives on gJ.
 vim.keymap.set('n', 'gJ', 'J', { noremap = true, silent = true, desc = "Join Lines" })
 
+-- Page scrolling that adapts to short files: <C-d>/<C-u> move half a page, <C-S-d>/<C-S-u> a
+-- quarter. A page is the window height, or the file's line count when the whole file fits in the
+-- window, so even a short file takes 2 (or 4) presses to cross. On a long file this matches stock
+-- <C-d>/<C-u>. A count (5<C-d>) moves exactly that many lines.
+local function scroll_page(key, divisor)
+  key = vim.keycode(key)
+  return function()
+    local win = vim.api.nvim_get_current_win()
+    local amount = vim.v.count
+    if amount == 0 then
+      local page = vim.fn.getwininfo(win)[1].height
+      if vim.api.nvim_win_text_height(win, {}).all <= page then
+        page = vim.api.nvim_buf_line_count(0)
+      end
+      amount = math.max(1, math.floor(page / divisor))
+    end
+    -- A count also sets 'scroll' (:h CTRL-D); restore it so nothing else sees the change.
+    local saved = vim.wo[win].scroll
+    vim.cmd("normal! " .. amount .. key)
+    vim.api.nvim_set_option_value("scroll", saved, { scope = "local", win = win })
+  end
+end
+vim.keymap.set({ 'n', 'x' }, '<C-d>', scroll_page('<C-d>', 2), { noremap = true, silent = true, desc = "Scroll Down Half Page" })
+vim.keymap.set({ 'n', 'x' }, '<C-u>', scroll_page('<C-u>', 2), { noremap = true, silent = true, desc = "Scroll Up Half Page" })
+vim.keymap.set({ 'n', 'x' }, '<C-S-d>', scroll_page('<C-d>', 4), { noremap = true, silent = true, desc = "Scroll Down Quarter Page" })
+vim.keymap.set({ 'n', 'x' }, '<C-S-u>', scroll_page('<C-u>', 4), { noremap = true, silent = true, desc = "Scroll Up Quarter Page" })
+
 -- Guard against an accidental `dgg` when <C-d> is followed by gg.
 vim.keymap.set('n', 'dgg', 'gg', { noremap = true, silent = true, desc = "Prevent accidental deletion from <C-d> + gg rollover" })
 
