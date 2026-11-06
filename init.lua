@@ -1821,7 +1821,11 @@ require("lazy").setup({
         local dir = vim.fn.stdpath("cache") .. "/oxfmt-prettier/" .. vim.fn.sha256(path):sub(1, 16)
         local out = dir .. "/.oxfmtrc.json"
         local src, cached = vim.uv.fs_stat(path), vim.uv.fs_stat(out)
-        local src_mtime = src and (src.mtime.sec * 1e9 + src.mtime.nsec) or 0
+        -- Redo it when oxfmt itself is updated too (its pnpm shim is rewritten), since newer
+        -- releases convert Prettier settings differently (e.g. 0.73's reworked --migrate).
+        local oxfmt_bin = vim.uv.fs_stat(vim.fn.exepath("oxfmt"))
+        local function mtime_ns(stat) return stat and (stat.mtime.sec * 1e9 + stat.mtime.nsec) or 0 end
+        local src_mtime = math.max(mtime_ns(src), mtime_ns(oxfmt_bin))
         if cached and cached.mtime.sec * 1e9 + cached.mtime.nsec >= src_mtime then return out end
         local key = path .. ":" .. src_mtime
         if prettier_failures[key] then return nil end
