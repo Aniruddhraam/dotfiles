@@ -2541,24 +2541,24 @@ require("lazy").setup({
   -- =========================================================================
 
   -- Animated cursor trail (toggle: <leader>uc). Every frame makes Neovim redraw the screen (about
-  -- 1.5 ms of CPU), so the trail renders at 120 FPS: at 240 FPS, holding j kept about half a CPU
-  -- core busy. The plugin moves the trail by real elapsed time, so its length and speed are the
-  -- same at either rate; only the number of frames changes.
+  -- 1.5 ms of CPU), so the trail renders at the plugin's default 60 FPS (time_interval = 17 ms):
+  -- 120 FPS drew twice the frames, and at 240 FPS holding j kept about half a CPU core busy. The
+  -- plugin moves the trail by real elapsed time, so its length and speed are the same at any rate;
+  -- only the number of frames changes. The default delays (delay_after_key = 5 ms,
+  -- delay_event_to_smear = 1 ms) also stay: at 0, a keypress and the cursor event it causes each
+  -- started an update, redrawing twice for one move.
   {
     "sphamba/smear-cursor.nvim",
     event = "VeryLazy",
     keys = { { "<leader>uc", "<cmd>SmearCursorToggle<CR>", desc = "Toggle Cursor Smear" } },
     opts = {
       cursor_color = "#7aa2f7",
-      time_interval = 8, -- Render interval in ms (120 FPS).
       stiffness = 0.2, -- Gentle, fluid movement instead of an instant snap.
       trailing_stiffness = 0.12, -- Soft, lagging tail for a visible glide.
       damping = 0.65, -- Natural momentum.
       trailing_exponent = 3,
       anticipation = 0.1,
       distance_stop_animating = 0.1,
-      delay_event_to_smear = 0,
-      delay_after_key = 0,
       color_levels = 32,
       legacy_computing_symbols_support = true,
       legacy_computing_symbols_support_vertical_bars = true,
