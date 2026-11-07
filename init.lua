@@ -4449,12 +4449,18 @@ vim.api.nvim_create_autocmd("ModeChanged", {
 })
 
 vim.keymap.set('n', '<Esc>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
-vim.keymap.set('c', '<M-j>', smart_escape, { noremap = true, silent = true, desc = "Escape (Cmdline)" })
 
 -- Alt+u acts as Escape.
-vim.keymap.set({ 'i', 'n', 'v', 'x', 's', 'c' }, '<M-u>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
-vim.keymap.set({ 'i', 'n', 'v', 'x', 's', 'c' }, '<M-U>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
-vim.keymap.set({ 'i', 'n', 'v', 'x', 's', 'c' }, '<M-S-u>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
+vim.keymap.set({ 'i', 'n', 'v', 'x', 's' }, '<M-u>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
+vim.keymap.set({ 'i', 'n', 'v', 'x', 's' }, '<M-U>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
+vim.keymap.set({ 'i', 'n', 'v', 'x', 's' }, '<M-S-u>', smart_escape, { noremap = true, silent = true, desc = "Escape / Clear Search / Stop Snippet" })
+
+-- On the command line (`:`, `/` and vim.ui.input prompts), Alt+u and Alt+j cancel. They cannot use
+-- smart_escape: it feeds a non-typed <Esc>, and a non-typed <Esc> runs the command line instead of
+-- quitting it (`:help c_<Esc>`). <C-c> always quits without running it.
+for _, key in ipairs({ '<M-u>', '<M-U>', '<M-S-u>', '<M-j>' }) do
+  vim.keymap.set('c', key, '<C-c>', { noremap = true, silent = true, desc = "Cancel Command Line" })
+end
 
 -- Alt+b acts as Backspace.
 vim.keymap.set({ 'i', 'c' }, '<M-b>', '<BS>', { noremap = true, silent = true, desc = "Backspace" })
