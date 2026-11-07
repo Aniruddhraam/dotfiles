@@ -74,7 +74,7 @@ oxfmt follows the nearest formatting config between the file and its project roo
 
 | Area | Plugins |
 | --- | --- |
-| Appearance | tokyonight (OLED, transparent), lualine, bufferline, dropbar, noice, dressing, nvim-highlight-colors, mini.indentscope, nvim-scrollbar, smear-cursor |
+| Appearance | tokyonight (OLED, transparent), lualine, bufferline, dropbar, noice (also draws the input prompts next to the cursor), nvim-highlight-colors, mini.indentscope, nvim-scrollbar, smear-cursor |
 | Navigation | nvim-tree, aerial (code outline), fzf-lua, flash, which-key |
 | Editing | blink.cmp, mini.pairs, mini.bufremove, conform, treesitter |
 | Git | gitsigns, lazygit (through toggleterm) |

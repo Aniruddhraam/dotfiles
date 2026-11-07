@@ -899,8 +899,8 @@ require("lazy").setup({
       vim.ui.select = function(...)
         local current = vim.ui.select
         require("lazy").load({ plugins = { "fzf-lua" } })
-        -- dressing.nvim may have wrapped this stub. If loading did not replace vim.ui.select, use
-        -- the built-in picker instead of going round through the stub again.
+        -- If loading did not replace vim.ui.select (fzf-lua failed to load), use the built-in
+        -- picker instead of going round through the stub again.
         if vim.ui.select == current then return builtin_select(...) end
         return vim.ui.select(...)
       end
@@ -2569,24 +2569,6 @@ require("lazy").setup({
     },
   },
 
-  -- Rounded floating input and select dialogs
-  {
-    "stevearc/dressing.nvim",
-    event = "VeryLazy",
-    opts = {
-      input = {
-        border = "rounded",
-        mappings = {
-          -- Alt+u acts as Esc in this config. The global smart_escape only drops to Normal mode
-          -- (its fed <Esc> is non-remapping), so close the dialog explicitly.
-          n = { ["<Esc>"] = "Close", ["<M-u>"] = "Close", ["<M-U>"] = "Close", ["<M-S-u>"] = "Close", ["<CR>"] = "Confirm" },
-          i = { ["<Esc>"] = "Close", ["<M-u>"] = "Close", ["<M-U>"] = "Close", ["<M-S-u>"] = "Close", ["<CR>"] = "Confirm", ["<Up>"] = "HistoryPrev", ["<Down>"] = "HistoryNext" },
-        }
-      },
-      -- fzf-lua's register_ui_select() handles vim.ui.select instead.
-      select = { enabled = false },
-    },
-  },
 
   -- Indent guides with an animated current-scope line
   {
@@ -2660,6 +2642,19 @@ require("lazy").setup({
         command_palette = true,
         long_message_to_split = true,
         lsp_doc_border = true,
+      },
+      views = {
+        -- vim.ui.input prompts (LSP rename, file and trash prompts) open in a box just below the
+        -- cursor line, or above it when there is no room below, so the text being renamed stays
+        -- visible. Neovim's vim.ui.input calls input(), which noice draws with this view; `:`
+        -- commands keep the command palette at the top. (Row 1 would put the top border on the
+        -- cursor line.)
+        cmdline_input = {
+          relative = "cursor",
+          anchor = "auto",
+          position = { row = 2, col = 0 },
+          size = { min_width = 40, width = "auto", height = "auto" },
+        },
       },
     },
   },
