@@ -20,20 +20,14 @@ export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
 export PATH="/usr/local/cuda/bin:$PATH"
 
 
-# Path to your Oh My Zsh installation.
-export ZSH="$HOME/.oh-my-zsh"
-
-# Set name of the theme to load --- if set to "random", it will
-# load a random theme each time Oh My Zsh is loaded, in which case,
-# to know which specific one was loaded, run: echo $RANDOM_THEME
-# See https://github.com/ohmyzsh/ohmyzsh/wiki/Themes
-ZSH_THEME="powerlevel10k/powerlevel10k"
-
-# Set list of themes to pick from when loading at random
-# Setting this variable when ZSH_THEME=random will cause zsh to load
-# a theme from this variable instead of looking in $ZSH/themes/
-# If set to an empty array, this variable will have no effect.
-# ZSH_THEME_RANDOM_CANDIDATES=( "robbyrussell" "agnoster" )
+# Plugins are managed by antidote (https://antidote.sh) and listed, in load order, in
+# ~/.zsh_plugins.txt: Oh My Zsh's library and plugins, fzf-tab, zsh-autosuggestions,
+# fast-syntax-highlighting and the Powerlevel10k prompt. Oh My Zsh comes from antidote's clone,
+# so $ZSH, $ZSH_CUSTOM and the Oh My Zsh options below keep their usual meaning.
+_antidote_home="${XDG_CACHE_HOME:-$HOME/.cache}/antidote"
+export ZSH="$_antidote_home/github.com/ohmyzsh/ohmyzsh"
+ZSH_CUSTOM="$ZSH/custom"
+ZSH_CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/oh-my-zsh"
 
 # Uncomment the following line to use case-sensitive completion.
 # CASE_SENSITIVE="true"
@@ -41,14 +35,6 @@ ZSH_THEME="powerlevel10k/powerlevel10k"
 # Uncomment the following line to use hyphen-insensitive completion.
 # Case-sensitive completion must be off. _ and - will be interchangeable.
 # HYPHEN_INSENSITIVE="true"
-
-# Uncomment one of the following lines to change the auto-update behavior
-# zstyle ':omz:update' mode disabled  # disable automatic updates
-# zstyle ':omz:update' mode auto      # update automatically without asking
-# zstyle ':omz:update' mode reminder  # just remind me to update when it's time
-
-# Uncomment the following line to change how often to auto-update (in days).
-# zstyle ':omz:update' frequency 13
 
 # Uncomment the following line if pasting URLs and other text is messed up.
 # DISABLE_MAGIC_FUNCTIONS="true"
@@ -80,9 +66,6 @@ ZSH_THEME="powerlevel10k/powerlevel10k"
 # or set a custom format using the strftime function format specifications,
 # see 'man strftime' for details.
 # HIST_STAMPS="mm/dd/yyyy"
-
-# Would you like to use another custom folder than $ZSH/custom?
-# ZSH_CUSTOM=/path/to/new-custom-folder
 
 # History Configuration
 HISTFILE="$HOME/.zsh_history"
@@ -117,37 +100,52 @@ autoload -Uz add-zsh-hook && add-zsh-hook zshaddhistory _hist_filter
 # Autosuggestions async non-blocking search
 export ZSH_AUTOSUGGEST_USE_ASYNC=1
 
-# Which plugins would you like to load?
-# Standard plugins can be found in $ZSH/plugins/
-# Custom plugins may be added to $ZSH_CUSTOM/plugins/
-# Example format: plugins=(rails git textmate ruby lighthouse)
-# Add wisely, as too many plugins slow down shell startup.
-# Skip the per-startup compaudit directory-permission scan (single-user machine)
-ZSH_DISABLE_COMPFIX="true"
-
-# zsh-completions ships its definitions in src/; must be on fpath before compinit
-fpath+="${ZSH_CUSTOM:-$ZSH/custom}/plugins/zsh-completions/src"
-
-# fzf-tab must load before plugins that wrap ZLE widgets (autosuggestions, syntax-highlighting)
-plugins=(
-  git
-  fzf-tab
-  zsh-autosuggestions
-  sudo
-  copypath
-  copyfile
-  zsh-syntax-highlighting
-)
-
 # Keep the completion dump in the cache dir instead of $HOME
 ZSH_COMPDUMP="${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump-${HOST}-${ZSH_VERSION}"
 [[ -d ${ZSH_COMPDUMP:h} ]] || mkdir -p "${ZSH_COMPDUMP:h}"
 
 # No url-quote-magic / bracketed-paste-magic: they made large pastes take seconds and
-# inserted backslashes into URLs pasted inside quotes
+# inserted backslashes into URLs pasted inside quotes (read by Oh My Zsh's lib/misc.zsh)
 DISABLE_MAGIC_FUNCTIONS=true
 
-source $ZSH/oh-my-zsh.sh
+# antidote is autoloaded from its functions directory, so antidote.zsh is only read when the
+# static plugin file ~/.zsh_plugins.zsh has to be rebuilt, i.e. after ~/.zsh_plugins.txt
+# changed (new plugins are cloned then). That happens before compinit, so zsh-completions'
+# src/ exists when compinit scans fpath.
+fpath=("$HOME/.antidote/functions" $fpath)
+autoload -Uz antidote
+() {
+  local plugins=${ZDOTDIR:-$HOME}/.zsh_plugins
+  [[ $plugins.zsh -nt $plugins.txt ]] || antidote bundle <$plugins.txt >|$plugins.zsh || return
+  [[ $plugins.zsh.zwc -nt $plugins.zsh ]] || zcompile $plugins.zsh
+}
+
+# Completion. fpath gets what Oh My Zsh added (its cache's completions/ first), and
+# zsh-completions' definitions last, so zsh's own completions still win over them.
+SHORT_HOST=${HOST/.*/}
+[[ -d $ZSH_CACHE_DIR/completions ]] || mkdir -p "$ZSH_CACHE_DIR/completions"
+fpath=("$ZSH_CACHE_DIR/completions" $fpath "$_antidote_home/github.com/zsh-users/zsh-completions/src")
+autoload -Uz compinit
+# Plain compinit globs every file on fpath at each start to see whether the dump is stale.
+# Instead, rescan only when an fpath directory changed after the dump was written (a completion
+# was added or removed), with -u to skip the compaudit permission scan (single-user machine);
+# otherwise load the dump as it is (-C).
+() {
+  local dir
+  for dir in $fpath; do
+    if [[ -d $dir && $dir -nt $ZSH_COMPDUMP ]]; then
+      compinit -u -d "$ZSH_COMPDUMP" && touch "$ZSH_COMPDUMP"
+      return
+    fi
+  done
+  compinit -C -d "$ZSH_COMPDUMP"
+}
+[[ $ZSH_COMPDUMP.zwc -nt $ZSH_COMPDUMP ]] || zcompile "$ZSH_COMPDUMP"
+
+# Load the plugins. fzf-tab comes after compinit and before the plugins that wrap ZLE widgets
+# (zsh-autosuggestions, fast-syntax-highlighting); ~/.zsh_plugins.txt sets that order.
+source ${ZDOTDIR:-$HOME}/.zsh_plugins.zsh
+unset _antidote_home
 
 # User configuration
 
@@ -1221,7 +1219,8 @@ _upall_duckdb() {
 # pnpm records each global package with a caret range, and `pnpm update` stays inside it (for a
 # 0.x version, `^0.67.0` never leaves 0.67.x), so `--latest` is what moves them to new releases.
 # pnpm still skips versions published less than a day ago (its supply-chain release-age check).
-# `uv tool upgrade --all` also updates ty, the Python language server Neovim uses.
+# `uv tool upgrade --all` also updates ty, the Python language server Neovim uses, and
+# `antidote update` pulls antidote itself and every zsh plugin in ~/.zsh_plugins.txt.
 upall() {
   local step
   local -a failed
@@ -1238,6 +1237,7 @@ upall() {
     'uv tool upgrade --all' \
     '_upall_black' \
     '_upall_duckdb' \
+    'antidote update' \
     'flatpak update -y'
   do
     print -P "%F{blue}==> $step%f"

@@ -1,0 +1,22 @@
+# Zsh plugins, loaded by antidote (https://antidote.sh) from ~/.zshrc. antidote compiles this
+# list into ~/.zsh_plugins.zsh, rebuilt whenever this file changes, and `antidote update` (run
+# by upall) pulls every repo below. They load in this order, the order Oh My Zsh used.
+
+# Oh My Zsh's library: key bindings, history, completion styles, clipboard, git helpers, ...
+ohmyzsh/ohmyzsh path:lib
+
+# Plugins. fzf-tab loads after compinit (run in ~/.zshrc) and before the plugins that wrap ZLE
+# widgets (zsh-autosuggestions, fast-syntax-highlighting).
+ohmyzsh/ohmyzsh path:plugins/git
+Aloxaf/fzf-tab
+zsh-users/zsh-autosuggestions
+ohmyzsh/ohmyzsh path:plugins/sudo
+ohmyzsh/ohmyzsh path:plugins/copypath
+ohmyzsh/ohmyzsh path:plugins/copyfile
+zdharma-continuum/fast-syntax-highlighting
+
+# Prompt (Oh My Zsh loaded its theme after the plugins)
+romkatv/powerlevel10k
+
+# Completion definitions only: ~/.zshrc puts its src/ on fpath before compinit
+zsh-users/zsh-completions kind:clone

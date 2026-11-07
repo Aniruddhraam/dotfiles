@@ -1,6 +1,6 @@
 # Neovim and Zsh Configuration
 
-Two dotfiles in one repo: a Neovim setup (one `init.lua` plus a small terminal module) and a Zsh setup. The Neovim setup is built on [lazy.nvim](https://github.com/folke/lazy.nvim). It targets **Neovim 0.12+** and is tuned for the [Ghostty](https://ghostty.org) terminal on Linux. Parts of it also handle macOS and Windows paths. The Zsh setup (`zshrc`) is built on [Oh My Zsh](https://ohmyz.sh) and [Powerlevel10k](https://github.com/romkatv/powerlevel10k), and is written for Linux.
+Two dotfiles in one repo: a Neovim setup (one `init.lua` plus a small terminal module) and a Zsh setup. The Neovim setup is built on [lazy.nvim](https://github.com/folke/lazy.nvim). It targets **Neovim 0.12+** and is tuned for the [Ghostty](https://ghostty.org) terminal on Linux. Parts of it also handle macOS and Windows paths. The Zsh setup (`zshrc`) loads [Oh My Zsh](https://ohmyz.sh)'s library and plugins and the [Powerlevel10k](https://github.com/romkatv/powerlevel10k) prompt through the [antidote](https://antidote.sh) plugin manager, and is written for Linux.
 
 ## Repository layout
 
@@ -14,6 +14,7 @@ Two dotfiles in one repo: a Neovim setup (one `init.lua` plus a small terminal m
 | `formatters/oxfmt.json` | Global oxfmt style, used when a project has no oxfmt or Prettier config |
 | `lazy-lock.json` | Pinned plugin versions |
 | `zshrc` | The Zsh configuration. Link it to `~/.zshrc` (see [Zsh configuration](#zsh-configuration)) |
+| `zsh_plugins.txt` | The Zsh plugins antidote loads, in load order. Link it to `~/.zsh_plugins.txt` |
 | `zshenv` | Loads Cargo's environment and defers `/etc/zshrc` until after the instant prompt. Link it to `~/.zshenv` |
 | `p10k.zsh` | The Powerlevel10k prompt configuration. Link it to `~/.p10k.zsh` |
 
@@ -177,12 +178,13 @@ Comments in `init.lua`, `lua/` and the `after/` files follow one style:
 
 ## Zsh configuration
 
-`zshrc` is a single file that replaces `~/.zshrc`. It sets up Oh My Zsh with Powerlevel10k, fzf-based completion and history, modern CLI replacements, and a few helper functions. Everything that depends on an optional tool is guarded with `command -v`, so a missing tool skips its block instead of breaking the shell.
+`zshrc` is a single file that replaces `~/.zshrc`. It loads Oh My Zsh's library and plugins and Powerlevel10k through antidote, and sets up fzf-based completion and history, modern CLI replacements, and a few helper functions. Everything that depends on an optional tool is guarded with `command -v`, so a missing tool skips its block instead of breaking the shell.
 
 ### Zsh installation
 
 ```sh
 ln -sf ~/.config/nvim/zshrc ~/.zshrc
+ln -sf ~/.config/nvim/zsh_plugins.txt ~/.zsh_plugins.txt
 ln -sf ~/.config/nvim/zshenv ~/.zshenv
 ln -sf ~/.config/nvim/p10k.zsh ~/.p10k.zsh
 chsh -s "$(command -v zsh)"
@@ -193,8 +195,7 @@ Install the [requirements](#zsh-requirements) first. `zshrc` sources `~/.p10k.zs
 
 ### Zsh requirements
 
-- `zsh`, [Oh My Zsh](https://ohmyz.sh), and the [Powerlevel10k](https://github.com/romkatv/powerlevel10k) theme
-- Oh My Zsh custom plugins: `fzf-tab`, `zsh-autosuggestions`, `zsh-syntax-highlighting`, and `zsh-completions`
+- `zsh` and [antidote](https://antidote.sh), cloned to `~/.antidote`. On first start antidote clones everything in `zsh_plugins.txt` into `~/.cache/antidote`: Oh My Zsh (its library and the `git`, `sudo`, `copypath` and `copyfile` plugins), `fzf-tab`, `zsh-autosuggestions`, [`fast-syntax-highlighting`](https://github.com/zdharma-continuum/fast-syntax-highlighting), [Powerlevel10k](https://github.com/romkatv/powerlevel10k) and `zsh-completions`
 - [`fzf`](https://github.com/junegunn/fzf) and [`zoxide`](https://github.com/ajeetdsouza/zoxide). Both are initialised through a cache (see below).
 - Optional: `fd`, `bat`, `eza`, `rg` (previews and aliases), `lazygit`, `kitten` or `chafa` (`icat`), `uv`, `pnpm`
 - Optional, for `extract` and `compress`: multithreaded archive tools such as `pigz`, `lbzip2`, `zstd`, `7z`. Each falls back to the standard tool when missing.
@@ -209,12 +210,12 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 | Part | Contents |
 | --- | --- |
 | Prompt | Powerlevel10k instant prompt, kept at the very top, then `/etc/zshrc` (see [Startup order](#startup-order)) |
-| Environment | `PATH` (`~/.local/bin`, `~/go/bin`, `~/.cargo/bin`), Oh My Zsh path and theme, `EDITOR` / `VISUAL` set to `nvim` |
+| Environment | `PATH` (`~/.local/bin`, `~/go/bin`, `~/.cargo/bin`), the Oh My Zsh variables (`ZSH`, `ZSH_CUSTOM`, `ZSH_CACHE_DIR`) pointed at antidote's clone, `EDITOR` / `VISUAL` set to `nvim` |
 | History and options | 50,000 entries in `~/.zsh_history`, shared across terminals, duplicates removed, secret-looking commands never written (see below), `AUTO_CD`, `AUTO_PUSHD`, no beep |
-| Plugins | `git`, `fzf-tab`, `zsh-autosuggestions` (async), `sudo`, `copypath`, `copyfile`, `zsh-syntax-highlighting`, plus `zsh-completions` on `fpath`. The per-startup `compaudit` scan is skipped, and Oh My Zsh's magic functions (`url-quote-magic`, `bracketed-paste-magic`) are off. |
+| Plugins | Loaded by antidote from `~/.zsh_plugins.txt`: Oh My Zsh's library, its `git` plugin, `fzf-tab`, `zsh-autosuggestions` (async), Oh My Zsh's `sudo`, `copypath` and `copyfile`, `fast-syntax-highlighting` and Powerlevel10k, plus `zsh-completions` on `fpath`. antidote is autoloaded and only runs when the list changes; otherwise the shell sources the compiled static file `~/.zsh_plugins.zsh`. Oh My Zsh's magic functions (`url-quote-magic`, `bracketed-paste-magic`) are off. |
 | fzf | `fd` as the file source, `bat` and `eza` previews, and the fzf key bindings loaded through `_cache_eval` |
 | Aliases | Modern CLI replacements and shortcuts (see below) |
-| Completion | Case-insensitive and partial matching, fzf-tab renders the menu, completions and the completion dump (`ZSH_COMPDUMP`) kept in `~/.cache/zsh` instead of `$HOME` |
+| Completion | Case-insensitive and partial matching, fzf-tab renders the menu, completions and the completion dump (`ZSH_COMPDUMP`) kept in `~/.cache/zsh` instead of `$HOME`. `compinit` rescans `fpath` (without the `compaudit` permission scan) only when one of its directories changed since the dump was written, and otherwise loads the dump as is |
 | Archives | The `extract` and `compress` functions, with tab completion for `compress` |
 | Bytecode | `~/.zshrc` and `~/.p10k.zsh` are compiled with `zcompile` whenever they change |
 | Tooling | `pnpm` on `PATH`, the DNS mode helpers, the `uv` wrapper, `upall` and `clone` |
@@ -253,7 +254,7 @@ Without `zshenv`, zsh simply runs `/etc/zshrc` first as usual.
 | `dnsstatus` | Show the active DNS mode and time a lookup |
 | `uv add <pkg>` | Outside any project, first creates a bare `pyproject.toml`, then runs the normal `uv add`. Everything else passes straight through. |
 | `uv run <name>` | Runs `<name>.py` when `<name>` is not a file, a command on `PATH` or a project script, so `uv run Q10` runs `Q10.py` |
-| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup`, pnpm itself and its global packages (`--latest`), the `tsgo` link to TypeScript 7's native binary, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool` (including ty), the compiled black build, duckdb and `flatpak` |
+| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup`, pnpm itself and its global packages (`--latest`), the `tsgo` link to TypeScript 7's native binary, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool` (including ty), the compiled black build, duckdb, antidote and the Zsh plugins, and `flatpak` |
 | `clone <repo>` | `git clone`, then `cd` into the result. Takes a URL, `owner/repo`, or a bare name for `github.com/Aniruddhraam/<repo>`; extra arguments go to `git clone`. |
 
 The DNS helpers rewrite `/etc/resolv.conf` with `sudo`. They assume `dnscrypt-proxy` runs in both modes and only the resolver file changes.
@@ -284,7 +285,7 @@ A `zshaddhistory` hook drops commands that look like they carry a secret before 
 ### Zsh customising
 
 - Change the prompt with `p10k configure` or by editing `p10k.zsh` (linked to `~/.p10k.zsh`).
-- Add or remove Oh My Zsh plugins in the `plugins=( ... )` array. Keep `fzf-tab` before `zsh-autosuggestions` and `zsh-syntax-highlighting`, since it must load before plugins that wrap ZLE widgets.
+- Add or remove plugins in `zsh_plugins.txt` (an Oh My Zsh plugin is `ohmyzsh/ohmyzsh path:plugins/<name>`). The next shell rebuilds `~/.zsh_plugins.zsh` and clones anything new. Keep `fzf-tab` before `zsh-autosuggestions` and `fast-syntax-highlighting`, since it must load before plugins that wrap ZLE widgets.
 - URLs are not escaped as you type or paste them (the magic functions are off), so quote any URL containing `?`, `&` or `=`.
 - `grep` runs on ripgrep where it can (see [grep](#grep)). Call `command grep` when you need GNU grep.
 - Edit the package list in `upall` to match the global `pnpm` packages you keep.
@@ -308,6 +309,7 @@ The config prefers compiled tools over Neovim's built-in or scripted equivalents
 | `oxlint` / `oxfmt` | ESLint / Prettier | Rust implementations, usually an order of magnitude faster | JS/TS linting and formatting |
 | `tsgo` (TypeScript 7) | `vtsls`, `typescript-language-server` | TypeScript 7's compiler and language server are a native Go binary. `upall` links it as `~/.local/bin/tsgo`, so it starts without Node. 7.0 has no refactor code actions yet | JS/TS language server |
 | `ty` | `basedpyright`, `pyright` | A Rust type checker and language server from Astral, installed with `uv tool`, with no Node runtime | Python language server |
+| antidote static file, `fast-syntax-highlighting` | Oh My Zsh's loader, `zsh-syntax-highlighting` | Plugins load from one compiled file, and highlighting is faster | Zsh startup and typing |
 | mypyc-compiled `black` | Pure-Python `black` | About 1.6x faster per format. `upall` builds it with mypyc when PyPI has no compiled wheel for the system Python | Python formatting |
 | `black`, `jupytext` via `uv` | `pip` installs | Isolated tool environments, installed in seconds | Python formatting and notebooks |
 | `magick` | `convert` (ImageMagick 6) | Current ImageMagick 7 CLI | image.nvim |
@@ -334,17 +336,10 @@ sudo dnf install -y zsh bat eza zoxide chafa \
     pigz lbzip2 zstd lz4 lzop brotli p7zip p7zip-plugins
 ```
 
-Install Oh My Zsh without letting it overwrite `~/.zshrc`, then clone the theme and plugins into its custom directory:
+Clone antidote. The first shell then clones Oh My Zsh, the plugins and Powerlevel10k listed in `zsh_plugins.txt`:
 
 ```sh
-RUNZSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-
-ZSH_CUSTOM=${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}
-git clone --depth=1 https://github.com/romkatv/powerlevel10k "$ZSH_CUSTOM/themes/powerlevel10k"
-git clone --depth=1 https://github.com/Aloxaf/fzf-tab "$ZSH_CUSTOM/plugins/fzf-tab"
-git clone --depth=1 https://github.com/zsh-users/zsh-autosuggestions "$ZSH_CUSTOM/plugins/zsh-autosuggestions"
-git clone --depth=1 https://github.com/zsh-users/zsh-syntax-highlighting "$ZSH_CUSTOM/plugins/zsh-syntax-highlighting"
-git clone --depth=1 https://github.com/zsh-users/zsh-completions "$ZSH_CUSTOM/plugins/zsh-completions"
+git clone --depth=1 https://github.com/mattmc3/antidote.git ~/.antidote
 ```
 
 `fzf`, `fd` and `rg` come from the [system packages](#system-packages-dnf) above. `uv` and `pnpm` are covered in their own sections. The DNS helpers need `dnscrypt-proxy` configured separately; they only switch `/etc/resolv.conf`.
