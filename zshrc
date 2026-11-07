@@ -1221,6 +1221,7 @@ _upall_duckdb() {
 # pnpm records each global package with a caret range, and `pnpm update` stays inside it (for a
 # 0.x version, `^0.67.0` never leaves 0.67.x), so `--latest` is what moves them to new releases.
 # pnpm still skips versions published less than a day ago (its supply-chain release-age check).
+# `uv tool upgrade --all` also updates ty, the Python language server Neovim uses.
 upall() {
   local step
   local -a failed
@@ -1229,7 +1230,7 @@ upall() {
     '_upall_go' \
     'gup update' \
     'pnpm self-update' \
-    'pnpm update -g --latest oxfmt oxlint @oxc-node/cli typescript basedpyright' \
+    'pnpm update -g --latest oxfmt oxlint @oxc-node/cli typescript' \
     '_upall_tsgo_link' \
     'rustup update' \
     'cargo install-update -a' \

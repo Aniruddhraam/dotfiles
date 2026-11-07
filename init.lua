@@ -2778,56 +2778,17 @@ vim.lsp.config("clangd", {
   filetypes = { "c", "cpp", "objc", "objcpp" },
   root_markers = { "compile_commands.json", "compile_flags.txt", ".clangd", ".git" },
 })
-local basedpyright_analysis = {
-  autoSearchPaths = true,
-  useLibraryCodeForTypes = true,
-  diagnosticMode = "openFilesOnly",
-  -- Skip suggestions for names not yet imported. They made every completion reply about 3x slower.
-  autoImportCompletions = false,
-  typeCheckingMode = "standard",
-  reportMissingTypeStubs = "none",
-  reportUnknownMemberType = "none",
-  reportUnusedCallResult = "none",
-  reportUnknownArgumentType = "none",
-  reportUnknownVariableType = "none",
-}
-
-vim.lsp.config("basedpyright", {
-  cmd = { "basedpyright-langserver", "--stdio" },
+-- Python: ty (Astral's type checker and language server, a native binary installed with
+-- `uv tool install ty` and updated by `upall`). It finds the project's .venv by itself.
+vim.lsp.config("ty", {
+  cmd = { "ty", "server" },
   filetypes = { "python" },
-  root_markers = { "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "pyrightconfig.json", ".venv", ".git" },
-  before_init = function(_, config)
-    local root = config.root_dir or _G._project_root or vim.fn.getcwd()
-    local venv = vim.fs.joinpath(root, ".venv")
-    if vim.fn.isdirectory(venv) == 1 then
-      local is_win = vim.fn.has("win32") == 1
-      local py_candidates = {
-        vim.fs.joinpath(venv, "Scripts", "python.exe"),
-        vim.fs.joinpath(venv, "bin", "python"),
-        vim.fs.joinpath(venv, "Scripts", "python"),
-        vim.fs.joinpath(venv, "bin", "python.exe"),
-      }
-      local python_path = is_win and py_candidates[1] or py_candidates[2]
-      for _, cand in ipairs(py_candidates) do
-        if vim.uv.fs_stat(cand) then
-          python_path = cand
-          break
-        end
-      end
-
-      config.settings = config.settings or {}
-      config.settings.python = config.settings.python or {}
-      config.settings.python.pythonPath = python_path
-      config.settings.python.venvPath = root
-      config.settings.python.venv = ".venv"
-    end
-  end,
+  root_markers = { "ty.toml", "pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", ".venv", ".git" },
   settings = {
-    basedpyright = {
-      analysis = basedpyright_analysis,
-    },
-    python = {
-      analysis = basedpyright_analysis,
+    ty = {
+      diagnosticMode = "openFilesOnly",
+      -- No suggestions for names not yet imported, as before.
+      completions = { autoImport = false },
     },
   },
 })
@@ -2917,7 +2878,7 @@ vim.lsp.config("taplo", {
 vim.lsp.enable("tsgo")
 vim.lsp.enable("oxlint")
 vim.lsp.enable("clangd")
-vim.lsp.enable("basedpyright")
+vim.lsp.enable("ty")
 vim.lsp.enable("rust_analyzer")
 vim.lsp.enable("gopls")
 -- jdtls isn't always installed; enabling it anyway logs a failed start for every Java buffer.
@@ -3096,9 +3057,9 @@ end
 -- and taplo answer instantly), and none appear mid-insert.
 local CHECK_DELAY_MS = 300
 local CHECK_TIMEOUT_MS = 6000
--- rust-analyzer publishes only after cargo check, which it already reports itself. basedpyright
--- re-checks on nearly every edit, so its indicator would flash constantly.
-local CHECK_SKIP = { rust_analyzer = true, basedpyright = true }
+-- rust-analyzer publishes only after cargo check, which it already reports itself. ty re-checks
+-- on every edit, so its indicator would flash constantly.
+local CHECK_SKIP = { rust_analyzer = true, ty = true }
 local lsp_checks = {} ---@type table<string, table>
 local lsp_published = {} ---@type table<string, boolean> push server has published for this buffer
 local lsp_answers = {} ---@type table<integer, boolean> push server has answered an edit with a publish

@@ -59,7 +59,7 @@ Servers are enabled in section 3 and must be installed and on `PATH`. The config
 | --- | --- | --- |
 | TypeScript / JavaScript | `tsgo` (TypeScript 7's native server), `oxlint` | `oxfmt` |
 | CSS, HTML, JSON, YAML, Markdown | | `oxfmt` |
-| Python | `basedpyright` | `black` |
+| Python | `ty` | `black` |
 | C / C++ | `clangd` | `clang-format` |
 | Rust | `rust-analyzer` | `rustfmt` |
 | Go | `gopls` | `gofmt` |
@@ -253,7 +253,7 @@ Without `zshenv`, zsh simply runs `/etc/zshrc` first as usual.
 | `dnsstatus` | Show the active DNS mode and time a lookup |
 | `uv add <pkg>` | Outside any project, first creates a bare `pyproject.toml`, then runs the normal `uv add`. Everything else passes straight through. |
 | `uv run <name>` | Runs `<name>.py` when `<name>` is not a file, a command on `PATH` or a project script, so `uv run Q10` runs `Q10.py` |
-| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup`, pnpm itself and its global packages (`--latest`), the `tsgo` link to TypeScript 7's native binary, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool`, the compiled black build, duckdb and `flatpak` |
+| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup`, pnpm itself and its global packages (`--latest`), the `tsgo` link to TypeScript 7's native binary, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool` (including ty), the compiled black build, duckdb and `flatpak` |
 | `clone <repo>` | `git clone`, then `cd` into the result. Takes a URL, `owner/repo`, or a bare name for `github.com/Aniruddhraam/<repo>`; extra arguments go to `git clone`. |
 
 The DNS helpers rewrite `/etc/resolv.conf` with `sudo`. They assume `dnscrypt-proxy` runs in both modes and only the resolver file changes.
@@ -307,6 +307,7 @@ The config prefers compiled tools over Neovim's built-in or scripted equivalents
 | `fzf` | Vimscript/Lua pickers | A compiled Go finder that streams results without building Lua tables | All of fzf-lua |
 | `oxlint` / `oxfmt` | ESLint / Prettier | Rust implementations, usually an order of magnitude faster | JS/TS linting and formatting |
 | `tsgo` (TypeScript 7) | `vtsls`, `typescript-language-server` | TypeScript 7's compiler and language server are a native Go binary. `upall` links it as `~/.local/bin/tsgo`, so it starts without Node. 7.0 has no refactor code actions yet | JS/TS language server |
+| `ty` | `basedpyright`, `pyright` | A Rust type checker and language server from Astral, installed with `uv tool`, with no Node runtime | Python language server |
 | mypyc-compiled `black` | Pure-Python `black` | About 1.6x faster per format. `upall` builds it with mypyc when PyPI has no compiled wheel for the system Python | Python formatting |
 | `black`, `jupytext` via `uv` | `pip` installs | Isolated tool environments, installed in seconds | Python formatting and notebooks |
 | `magick` | `convert` (ImageMagick 6) | Current ImageMagick 7 CLI | image.nvim |
@@ -381,10 +382,10 @@ gup update      # update all of them to the latest release
 Install `pnpm` first (`dnf install pnpm`, or the [standalone script](https://pnpm.io/installation)), run `pnpm setup` once, then:
 
 ```sh
-pnpm add -g typescript basedpyright oxlint oxfmt
+pnpm add -g typescript oxlint oxfmt
 ```
 
-This gives `tsc`, `basedpyright-langserver`, `oxlint` and `oxfmt` in `~/.local/share/pnpm/bin`. `tsc` is TypeScript 7, whose language server (`tsc --lsp`) Neovim uses. pnpm's `tsc` is a Node script that execs the native binary, so run `upall` once (or its `_upall_tsgo_link` step) to link that binary as `~/.local/bin/tsgo`; until then Neovim starts the server through `tsc`. Update them with `upall`, which runs `pnpm update -g --latest`: plain `pnpm update -g` stays inside each package's caret range, which for a 0.x version such as oxfmt never leaves the minor version. pnpm also waits until a release is about a day old before installing it.
+This gives `tsc`, `oxlint` and `oxfmt` in `~/.local/share/pnpm/bin`. `tsc` is TypeScript 7, whose language server (`tsc --lsp`) Neovim uses. pnpm's `tsc` is a Node script that execs the native binary, so run `upall` once (or its `_upall_tsgo_link` step) to link that binary as `~/.local/bin/tsgo`; until then Neovim starts the server through `tsc`. Update them with `upall`, which runs `pnpm update -g --latest`: plain `pnpm update -g` stays inside each package's caret range, which for a 0.x version such as oxfmt never leaves the minor version. pnpm also waits until a release is about a day old before installing it.
 
 ### Python tools (`uv`)
 
@@ -392,6 +393,7 @@ Install [uv](https://docs.astral.sh/uv/) (`dnf install uv` or its install script
 
 ```sh
 uv tool install --python /usr/bin/python3 black
+uv tool install ty             # Python language server
 uv tool install jupytext
 uv tool install jupyter-core   # provides the `jupyter` command used for notebook upgrades
 uv tool install ruff           # optional
@@ -419,7 +421,7 @@ HATCH_BUILD_HOOKS_ENABLE=1 MYPYC_OPT_LEVEL=3 MYPYC_DEBUG_LEVEL=0 \
 ```sh
 for t in nvim git zsh fzf fd rg bat eza zoxide lazygit magick soffice clangd clang-format \
          rust-analyzer rustfmt gopls gofmt dlv texlab taplo \
-         tsgo basedpyright-langserver oxlint oxfmt black jupytext; do
+         tsgo ty oxlint oxfmt black jupytext; do
   command -v "$t" >/dev/null && echo "ok      $t" || echo "MISSING $t"
 done
 ```
