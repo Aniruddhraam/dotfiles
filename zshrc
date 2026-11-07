@@ -1153,12 +1153,19 @@ _upall_go() {
   print "go: $current -> $latest (~/sdk/$current and ~/go/bin/$current are no longer used)"
 }
 
-# vtsls runs TypeScript's JS language service (tsserver). TypeScript 7 is a native compiler that
-# ships no tsserver, so vtsls gets the last JS line (6.x) from its own folder (see the vtsls
-# config in ~/.config/nvim/init.lua). Updates stay within ^6.
-_upall_vtsls_tsdk() {
-  [[ -f $HOME/.local/share/vtsls-tsdk/package.json ]] || return 0
-  pnpm --dir "$HOME/.local/share/vtsls-tsdk" update
+# Neovim runs TypeScript 7's native language server (`tsc --lsp`, see the tsgo config in
+# ~/.config/nvim/init.lua). pnpm's `tsc` is a Node script that execs the native binary from
+# @typescript/typescript-linux-x64, so that binary is linked as ~/.local/bin/tsgo and the server
+# starts without Node. Re-linked after every pnpm update, since its path names the version.
+_upall_tsgo_link() {
+  local shim=$PNPM_HOME/bin/tsc target pkg exe
+  [[ -f $shim ]] || return 0
+  target=$(command grep -o 'cmd-shim-target=.*' "$shim") || return 1
+  target=${target#cmd-shim-target=}
+  pkg=${${target:h:h}:A}   # real path of the typescript package
+  exe=${pkg:h}/@typescript/typescript-linux-x64/lib/tsc
+  [[ -x $exe ]] || { print -u2 "tsgo: no native tsc next to $pkg"; return 1 }
+  ln -sfn "${exe:A}" "$HOME/.local/bin/tsgo" && print "tsgo: $("$HOME/.local/bin/tsgo" --version)"
 }
 
 # texlab stopped publishing to crates.io at 4.3.2, so `cargo install-update` never sees its
@@ -1222,8 +1229,8 @@ upall() {
     '_upall_go' \
     'gup update' \
     'pnpm self-update' \
-    'pnpm update -g --latest oxfmt oxlint @oxc-node/cli @vtsls/language-server typescript basedpyright' \
-    '_upall_vtsls_tsdk' \
+    'pnpm update -g --latest oxfmt oxlint @oxc-node/cli typescript basedpyright' \
+    '_upall_tsgo_link' \
     'rustup update' \
     'cargo install-update -a' \
     '_upall_texlab' \

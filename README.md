@@ -57,7 +57,7 @@ Servers are enabled in section 3 and must be installed and on `PATH`. The config
 
 | Language | Server | Formatter |
 | --- | --- | --- |
-| TypeScript / JavaScript | `vtsls`, `oxlint` | `oxfmt` |
+| TypeScript / JavaScript | `tsgo` (TypeScript 7's native server), `oxlint` | `oxfmt` |
 | CSS, HTML, JSON, YAML, Markdown | | `oxfmt` |
 | Python | `basedpyright` | `black` |
 | C / C++ | `clangd` | `clang-format` |
@@ -89,7 +89,7 @@ Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvi
 
 - **Projects and sessions.** The dashboard and auto-session save and restore tabs and buffers per project. `<leader>p` restores an active project, and `<leader>fp` opens a recent one in NvimTree.
 - **Sidebar layout.** NvimTree and Aerial keep fixed widths and never take over the window when the last file closes. `<M-e>` and `<M-S-e>` cycle focus between the tree, the code window and the outline.
-- **Tool progress.** Work that never arrives as LSP progress shows in the bottom-right corner in the same style: formatter runs (black, oxfmt, rustfmt and the rest), slow diagnostic re-checks after an edit (vtsls, texlab), jupytext and LibreOffice conversions, NvimTree background deletes, and lazy.nvim's update check.
+- **Tool progress.** Work that never arrives as LSP progress shows in the bottom-right corner in the same style: formatter runs (black, oxfmt, rustfmt and the rest), slow diagnostic re-checks after an edit (such as texlab's), jupytext and LibreOffice conversions, NvimTree background deletes, and lazy.nvim's update check.
 - **Notebooks.** `.ipynb` files open as `py:percent` scripts through jupytext and are converted back on save. Molten runs cells inline.
 - **Python indentation.** Enter indents like Vim's own Python indent: one level after a colon, a hanging indent inside brackets, and a dedent after `return`, `pass`, `break`, `continue` and `raise`. Brackets and `#` inside strings and comments are ignored, including in a docstring that is not closed yet, so `if c == "(":` no longer pushes the next line under the `(`.
 - **PDF and Word documents.** PDFs render page by page inside the buffer through the Kitty graphics protocol: `j`/`k` scroll, `h`/`l` pan, `+`/`-` zoom, `0` fits the width, `{n}G` jumps to a page and `q` closes. A `.docx` file offers to convert to PDF with LibreOffice for the same preview, or to open in the OS viewer. This needs a terminal that supports the Kitty graphics protocol, such as Ghostty.
@@ -253,7 +253,7 @@ Without `zshenv`, zsh simply runs `/etc/zshrc` first as usual.
 | `dnsstatus` | Show the active DNS mode and time a lookup |
 | `uv add <pkg>` | Outside any project, first creates a bare `pyproject.toml`, then runs the normal `uv add`. Everything else passes straight through. |
 | `uv run <name>` | Runs `<name>.py` when `<name>` is not a file, a command on `PATH` or a project script, so `uv run Q10` runs `Q10.py` |
-| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup`, pnpm itself and its global packages (`--latest`), vtsls's TypeScript 6, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool`, the compiled black build, duckdb and `flatpak` |
+| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup`, pnpm itself and its global packages (`--latest`), the `tsgo` link to TypeScript 7's native binary, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool`, the compiled black build, duckdb and `flatpak` |
 | `clone <repo>` | `git clone`, then `cd` into the result. Takes a URL, `owner/repo`, or a bare name for `github.com/Aniruddhraam/<repo>`; extra arguments go to `git clone`. |
 
 The DNS helpers rewrite `/etc/resolv.conf` with `sudo`. They assume `dnscrypt-proxy` runs in both modes and only the resolver file changes.
@@ -306,7 +306,7 @@ The config prefers compiled tools over Neovim's built-in or scripted equivalents
 | `fd` | `find` | Parallel directory walk with sane ignore defaults | Directory and project browsing (`<leader>d`, `<leader>fp`) |
 | `fzf` | Vimscript/Lua pickers | A compiled Go finder that streams results without building Lua tables | All of fzf-lua |
 | `oxlint` / `oxfmt` | ESLint / Prettier | Rust implementations, usually an order of magnitude faster | JS/TS linting and formatting |
-| `vtsls` on TypeScript 6 | `typescript-language-server` | Wraps VS Code's TypeScript extension directly, with server-side fuzzy matching. It runs on TypeScript 6.x, the newest release that ships `tsserver`: TypeScript 7's native `tsc --lsp` has no refactor code actions yet | JS/TS language server |
+| `tsgo` (TypeScript 7) | `vtsls`, `typescript-language-server` | TypeScript 7's compiler and language server are a native Go binary. `upall` links it as `~/.local/bin/tsgo`, so it starts without Node. 7.0 has no refactor code actions yet | JS/TS language server |
 | mypyc-compiled `black` | Pure-Python `black` | About 1.6x faster per format. `upall` builds it with mypyc when PyPI has no compiled wheel for the system Python | Python formatting |
 | `black`, `jupytext` via `uv` | `pip` installs | Isolated tool environments, installed in seconds | Python formatting and notebooks |
 | `magick` | `convert` (ImageMagick 6) | Current ImageMagick 7 CLI | image.nvim |
@@ -381,11 +381,10 @@ gup update      # update all of them to the latest release
 Install `pnpm` first (`dnf install pnpm`, or the [standalone script](https://pnpm.io/installation)), run `pnpm setup` once, then:
 
 ```sh
-pnpm add -g typescript @vtsls/language-server basedpyright oxlint oxfmt
-pnpm --dir ~/.local/share/vtsls-tsdk add 'typescript@^6'
+pnpm add -g typescript basedpyright oxlint oxfmt
 ```
 
-This gives `vtsls`, `basedpyright-langserver`, `oxlint` and `oxfmt` in `~/.local/share/pnpm/bin`. The second line installs the TypeScript 6 engine vtsls runs on (the global `typescript` is 7, which has no `tsserver`); without it, vtsls falls back to its bundled 5.9. Update them with `upall`, which runs `pnpm update -g --latest`: plain `pnpm update -g` stays inside each package's caret range, which for a 0.x version such as oxfmt never leaves the minor version. pnpm also waits until a release is about a day old before installing it.
+This gives `tsc`, `basedpyright-langserver`, `oxlint` and `oxfmt` in `~/.local/share/pnpm/bin`. `tsc` is TypeScript 7, whose language server (`tsc --lsp`) Neovim uses. pnpm's `tsc` is a Node script that execs the native binary, so run `upall` once (or its `_upall_tsgo_link` step) to link that binary as `~/.local/bin/tsgo`; until then Neovim starts the server through `tsc`. Update them with `upall`, which runs `pnpm update -g --latest`: plain `pnpm update -g` stays inside each package's caret range, which for a 0.x version such as oxfmt never leaves the minor version. pnpm also waits until a release is about a day old before installing it.
 
 ### Python tools (`uv`)
 
@@ -420,7 +419,7 @@ HATCH_BUILD_HOOKS_ENABLE=1 MYPYC_OPT_LEVEL=3 MYPYC_DEBUG_LEVEL=0 \
 ```sh
 for t in nvim git zsh fzf fd rg bat eza zoxide lazygit magick soffice clangd clang-format \
          rust-analyzer rustfmt gopls gofmt dlv texlab taplo \
-         vtsls basedpyright-langserver oxlint oxfmt black jupytext; do
+         tsgo basedpyright-langserver oxlint oxfmt black jupytext; do
   command -v "$t" >/dev/null && echo "ok      $t" || echo "MISSING $t"
 done
 ```

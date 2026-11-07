@@ -2703,15 +2703,12 @@ vim.api.nvim_create_autocmd("User", {
 
 -- Completion capabilities are registered by blink.cmp itself (plugin/blink-cmp.lua) when it loads.
 
--- TypeScript / JavaScript (vtsls). vtsls drives TypeScript's JS language service (tsserver) and
--- bundles TypeScript 5.9. TypeScript 7's native server (`tsc --lsp`) answers faster but has no
--- refactor code actions in 7.0 (extract, move to file, convert export, infer return type), and
--- TypeScript 7 ships no tsserver, so vtsls stays and runs on the newest JS line instead: 6.x,
--- installed in ~/.local/share/vtsls-tsdk (updated by `upall`). A project's own TypeScript still
--- wins (autoUseWorkspaceTsdk); one on TypeScript 7 falls back to this 6.x.
-local vtsls_tsdk = vim.fn.expand("~/.local/share/vtsls-tsdk/node_modules/typescript/lib")
-vim.lsp.config("vtsls", {
-  cmd = { "vtsls", "--stdio" },
+-- TypeScript / JavaScript: TypeScript 7's native language server (`tsc --lsp`). pnpm's `tsc` is
+-- a Node script that execs the native binary, so `upall` links that binary as ~/.local/bin/tsgo
+-- and the server starts without Node (plain `tsc` is the fallback). TypeScript 7.0's server has
+-- no refactor code actions yet (extract, move to file, convert export, infer return type).
+vim.lsp.config("tsgo", {
+  cmd = { vim.fn.executable("tsgo") == 1 and "tsgo" or "tsc", "--lsp", "--stdio" },
   filetypes = {
     "javascript",
     "javascriptreact",
@@ -2722,16 +2719,6 @@ vim.lsp.config("vtsls", {
   },
   root_markers = { "tsconfig.json", "package.json", "jsconfig.json", ".git" },
   settings = {
-    vtsls = {
-      enableMoveToFileCodeAction = true,
-      autoUseWorkspaceTsdk = true,
-      typescript = { globalTsdk = vim.uv.fs_stat(vtsls_tsdk .. "/tsserver.js") and vtsls_tsdk or nil },
-      experimental = {
-        completion = {
-          enableServerSideFuzzyMatch = true,
-        },
-      },
-    },
     typescript = {
       updateImportsOnFileMove = { enabled = "always" },
       suggest = {
@@ -2927,7 +2914,7 @@ vim.lsp.config("taplo", {
   root_markers = { ".taplo.toml", "taplo.toml", ".git" },
 })
 
-vim.lsp.enable("vtsls")
+vim.lsp.enable("tsgo")
 vim.lsp.enable("oxlint")
 vim.lsp.enable("clangd")
 vim.lsp.enable("basedpyright")
@@ -3103,7 +3090,7 @@ function Tool_Progress.start(opts)
 end
 
 -- Diagnostic re-checks. After an edit, servers recompute diagnostics without reporting $/progress
--- (vtsls takes ~0.5s, texlab ~0.3s), so track each one: pull
+-- (texlab takes ~0.3s), so track each one: pull
 -- servers by their textDocument/diagnostic requests, push servers from didChange until they
 -- publish for that file. Only checks still running after CHECK_DELAY_MS show up (clangd, gopls,
 -- and taplo answer instantly), and none appear mid-insert.
