@@ -254,7 +254,7 @@ Without `zshenv`, zsh simply runs `/etc/zshrc` first as usual.
 | `dnsstatus` | Show the active DNS mode and time a lookup |
 | `uv add <pkg>` | Outside any project, first creates a bare `pyproject.toml`, then runs the normal `uv add`. Everything else passes straight through. |
 | `uv run <name>` | Runs `<name>.py` when `<name>` is not a file, a command on `PATH` or a project script, so `uv run Q10` runs `Q10.py` |
-| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup`, pnpm itself and its global packages (`--latest`), the `tsgo` link to TypeScript 7's native binary, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool` (including ty), the compiled black build, duckdb, antidote and the Zsh plugins, and `flatpak` |
+| `upall` | Updates every tool the setup uses, in turn, and lists any step that failed: `dnf`, the Go toolchain, `gup` (building the Go tools for x86-64-v3), pnpm itself and its global packages (`--latest`), the `tsgo` link to TypeScript 7's native binary, `rustup`, `cargo install-update`, texlab (from its GitHub releases), `uv tool` (including ty), the compiled black build, duckdb, antidote and the Zsh plugins, and `flatpak` |
 | `clone <repo>` | `git clone`, then `cd` into the result. Takes a URL, `owner/repo`, or a bare name for `github.com/Aniruddhraam/<repo>`; extra arguments go to `git clone`. |
 
 The DNS helpers rewrite `/etc/resolv.conf` with `sudo`. They assume `dnscrypt-proxy` runs in both modes and only the resolver file changes.
@@ -366,11 +366,11 @@ go install golang.org/x/tools/gopls@latest
 go install github.com/go-delve/delve/cmd/dlv@latest
 go install github.com/jesseduffield/lazygit@latest
 
-gup list        # show installed Go binaries and their versions
-gup update      # update all of them to the latest release
+gup list                   # show installed Go binaries and their versions
+GOAMD64=v3 gup update      # update all of them to the latest release, built for x86-64-v3
 ```
 
-`gofmt` ships with Go itself. Binaries land in `~/go/bin`, which the config adds to `PATH`. `upall` also keeps the Go toolchain current: it downloads a newer release through its `golang.org/dl` wrapper into `~/sdk/<version>` and points `~/.local/bin/go` and `gofmt` at it, before `gup update` rebuilds the Go tools.
+`gofmt` ships with Go itself. Binaries land in `~/go/bin`, which the config adds to `PATH`. `upall` also keeps the Go toolchain current: it downloads a newer release through its `golang.org/dl` wrapper into `~/sdk/<version>` and points `~/.local/bin/go` and `gofmt` at it, before `gup update` rebuilds the Go tools. It builds them with `GOAMD64=v3` (AVX2, BMI2, FMA), so they need a Haswell-or-newer x86-64 CPU; prefix the `go install` lines above with `GOAMD64=v3` to match.
 
 ### JavaScript tooling (`pnpm`)
 
