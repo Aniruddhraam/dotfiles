@@ -13,6 +13,7 @@ Two dotfiles in one repo: a Neovim setup (one `init.lua` plus a small terminal m
 | `shortcuts.md` | The shortcuts sheet that `?` opens as a read-only tab in any project |
 | `formatters/oxfmt.json` | Global oxfmt style, used when a project has no oxfmt or Prettier config |
 | `lazy-lock.json` | Pinned plugin versions |
+| `performance-upgrades.md` | Performance changes applied to this setup and the ones still suggested |
 | `zshrc` | The Zsh configuration. Link it to `~/.zshrc` (see [Zsh configuration](#zsh-configuration)) |
 | `zsh_plugins.txt` | The Zsh plugins antidote loads, in load order. Link it to `~/.zsh_plugins.txt` |
 | `zshenv` | Loads Cargo's environment and defers `/etc/zshrc` until after the instant prompt. Link it to `~/.zshenv` |
