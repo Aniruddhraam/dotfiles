@@ -46,7 +46,7 @@ Close it with `?`, `q` or `<leader>w`. The leader key is `Space`: press it and w
 | `<C-z>` / `<C-y>` | Undo / redo |
 | `<C-c>` | Copy the line, or the selection |
 | `<C-x>` | Cut the line, or the selection |
-| `<C-v>` | Paste (Insert mode) |
+| `<C-v>` | Paste (Insert mode and the command line) |
 | `gc` / `gcc` | Toggle a comment on a motion or selection / on the line |
 | `gJ` | Join lines (`J` selects instead) |
 | `s` / `S` | Flash jump / Flash treesitter selection |
@@ -80,6 +80,18 @@ Close it with `?`, `q` or `<leader>w`. The leader key is `Space`: press it and w
 | `<C-BS>` | Delete the previous word |
 | `<M-o>` | Run one Normal-mode command |
 | `<M-u>` | Escape |
+
+## Command line and input prompts
+
+| Key | Action |
+| --- | --- |
+| `<M-u>`, `<M-j>`, `<Esc>` | Cancel |
+| `<M-h>` / `<M-l>` | Move the cursor |
+| `<M-w>` / `<M-W>` | Move a word forward / backward |
+| `<M-H>` / `<M-L>` | Go to the line start / end |
+| `<M-b>`, `<M-BS>` | Backspace |
+| `<C-BS>` | Delete the previous word |
+| `<C-v>` | Paste |
 
 ## Completion
 

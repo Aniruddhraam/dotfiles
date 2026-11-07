@@ -4469,10 +4469,11 @@ vim.keymap.set({ 'i', 'c' }, '<M-b>', '<BS>', { noremap = true, silent = true, d
 -- Normal mode.
 vim.keymap.set({ 'i', 'c' }, '<M-BS>', '<BS>', { noremap = true, silent = true, desc = "Backspace" })
 
--- Ctrl+Backspace deletes the previous word (Insert mode only). <C-g>u makes it its own undo step.
--- Needs a terminal that speaks the kitty keyboard protocol (Ghostty, kitty, WezTerm). Elsewhere it
--- arrives as <C-h>, which is Home in Insert mode (below).
+-- Ctrl+Backspace deletes the previous word (Insert mode and the command line). <C-g>u makes it its
+-- own undo step. Needs a terminal that speaks the kitty keyboard protocol (Ghostty, kitty, WezTerm).
+-- Elsewhere it arrives as <C-h>, which is Home in Insert mode (below).
 vim.keymap.set('i', '<C-BS>', '<C-g>u<C-w>', { noremap = true, silent = true, desc = "Delete Previous Word (Insert)" })
+vim.keymap.set('c', '<C-BS>', '<C-w>', { noremap = true, silent = true, desc = "Delete Previous Word (Cmdline)" })
 
 -- Alt+o: run one Normal-mode command from Insert mode.
 vim.keymap.set('i', '<M-o>', '<C-o>', { noremap = true, silent = true, desc = "Execute single Normal command from Insert" })
@@ -4485,6 +4486,9 @@ vim.keymap.set('i', '<M-h>', '<Left>',  { noremap = true, silent = true, desc = 
 vim.keymap.set('i', '<M-j>', '<Down>',  { noremap = true, silent = true, desc = "Move Down (Insert)" })
 vim.keymap.set('i', '<M-k>', '<Up>',    { noremap = true, silent = true, desc = "Move Up (Insert)" })
 vim.keymap.set('i', '<M-l>', '<Right>', { noremap = true, silent = true, desc = "Move Right (Insert)" })
+-- Command line: Alt+h / Alt+l step by character (Alt+j cancels, see above).
+vim.keymap.set('c', '<M-h>', '<Left>',  { noremap = true, silent = true, desc = "Move Left (Cmdline)" })
+vim.keymap.set('c', '<M-l>', '<Right>', { noremap = true, silent = true, desc = "Move Right (Cmdline)" })
 
 -- Normal mode: directional movement.
 vim.keymap.set('n', '<M-h>', 'h', { noremap = true, silent = true, desc = "Move Left (Normal)" })
@@ -4553,6 +4557,12 @@ vim.keymap.set('i', '<M-S-h>', jump_to_line_start_insert, { noremap = true, sile
 vim.keymap.set('i', '<M-H>',   jump_to_line_start_insert, { noremap = true, silent = true, desc = "Go to First Character / Line Start (Insert)" })
 vim.keymap.set('i', '<M-S-l>', jump_to_line_end_insert,   { noremap = true, silent = true, desc = "Go to Line End (Insert)" })
 vim.keymap.set('i', '<M-L>',   jump_to_line_end_insert,   { noremap = true, silent = true, desc = "Go to Line End (Insert)" })
+
+-- Command line jumps.
+vim.keymap.set('c', '<M-S-h>', '<Home>', { noremap = true, silent = true, desc = "Go to Line Start (Cmdline)" })
+vim.keymap.set('c', '<M-H>',   '<Home>', { noremap = true, silent = true, desc = "Go to Line Start (Cmdline)" })
+vim.keymap.set('c', '<M-S-l>', '<End>',  { noremap = true, silent = true, desc = "Go to Line End (Cmdline)" })
+vim.keymap.set('c', '<M-L>',   '<End>',  { noremap = true, silent = true, desc = "Go to Line End (Cmdline)" })
 
 -- Normal mode jumps.
 vim.keymap.set('n', '<M-S-h>', '^', { noremap = true, silent = true, desc = "Go to First Non-Blank Character" })
@@ -5445,6 +5455,9 @@ vim.keymap.set({ 'v', 'x', 's' }, '<C-x>', visual_cut, { noremap = true, silent 
 vim.keymap.set('n', '<C-x>', 'dd', { noremap = true, silent = true, desc = "Cut Line" })
 vim.keymap.set('i', '<C-x>', '<C-o>dd', { noremap = true, silent = true, desc = "Cut Line" })
 vim.keymap.set('i', '<C-v>', '<C-r>+', { noremap = true, silent = true, desc = "Paste" })
+-- Command line and vim.ui.input prompts: the clipboard goes in as plain text (newlines are inserted,
+-- not run). <C-q> still inserts a key literally.
+vim.keymap.set('c', '<C-v>', '<C-r>+', { noremap = true, silent = true, desc = "Paste (Cmdline)" })
 
 vim.keymap.set('n', '<leader>U', function()
   print("Updating plugins...")
