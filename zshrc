@@ -1018,6 +1018,99 @@ _compress() {
 compdef _compress compress
 
 # ==============================================================================
+# ffmpeg: encode video on the GPU
+# ------------------------------------------------------------------------------
+# Software H.264 / H.265 / AV1 encodes become hardware encodes: NVENC on the RTX 4070, or Quick
+# Sync on the Arc iGPU when the NVIDIA driver isn't loaded (integrated-only GPU mode).
+#   - an encoder named with -c:v / -codec:v / -vcodec (libx264, libx265, libsvtav1, libaom-av1,
+#     librav1e, or the bare h264 / hevc / h265 / av1) becomes h264, hevc or av1 _nvenc / _qsv
+#   - no video encoder given and the output (last argument) is .mp4/.m4v/.mkv/.mov, where ffmpeg
+#     would use libx264: -c:v h264_nvenc (or h264_qsv) is added for that output
+#   - after a swap, software-only options are translated: -crf N becomes constant quality
+#     (NVENC: -rc vbr -cq N -b:v 0; QSV: -global_quality N; capped at 51), x264/x265 presets and
+#     SVT-AV1's numeric ones become the nearest NVENC p1..p7 or QSV veryfast..veryslow,
+#     -tune zerolatency becomes NVENC's -tune ull, and other -tune values and the
+#     -x264-params / -x265-params / -svtav1-params / -aom-params / -x264opts options are dropped
+# Stream copies (-c copy, -c:v copy), -vn, image and audio outputs are left alone. Only commands
+# typed in zsh go through this; scripts and programs that start ffmpeg themselves are unaffected.
+# FFMPEG_HW=nvenc|qsv picks the encoder family; FFMPEG_SOFTWARE=1 (or `command ffmpeg`) runs
+# plain ffmpeg.
+ffmpeg() {
+  emulate -L zsh
+  if [[ -n $FFMPEG_SOFTWARE ]]; then command ffmpeg "$@"; return; fi
+  local hw=${FFMPEG_HW:-nvenc}
+  [[ -z $FFMPEG_HW && ! -r /proc/driver/nvidia/version ]] && hw=qsv
+  [[ $hw == (nvenc|qsv) ]] || { command ffmpeg "$@"; return; }
+
+  local -A family=(
+    libx264 h264  h264 h264  libx265 hevc  hevc hevc  h265 hevc
+    libsvtav1 av1  libaom-av1 av1  librav1e av1  av1 av1
+  )
+  local -a args=("$@") out notes
+  local arg val
+  local -i i=1 n=$# swapped=0 vset=0 novideo=0 has_input=0
+
+  # Pass 1: swap named software encoders; note whether any video encoder, -vn or input is given
+  while (( i <= n )); do
+    arg=$args[i]
+    case $arg in
+      -c:v|-c:v:<->|-codec:v|-codec:v:<->|-vcodec)
+        val=$args[i+1]; vset=1
+        if [[ -n $val && -n ${family[$val]} ]]; then
+          notes+=("$val -> ${family[$val]}_$hw"); val=${family[$val]}_$hw; swapped=1
+        fi
+        out+=($arg $val); (( i += 2 )); continue ;;
+      -c|-codec) vset=1; out+=($arg $args[i+1]); (( i += 2 )); continue ;;
+      -i) has_input=1; out+=($arg $args[i+1]); (( i += 2 )); continue ;;
+      -vn) novideo=1 ;;
+    esac
+    out+=($arg); (( i++ ))
+  done
+
+  # No video encoder named: ffmpeg would pick libx264 for these containers
+  if (( has_input && !vset && !novideo && n > 2 )) && [[ $args[n-1] != -i && ${args[n]:l} == *.(mp4|m4v|mkv|mov) ]]; then
+    out[-1,-1]=(-c:v h264_$hw "$args[n]")
+    notes+=("libx264 (default) -> h264_$hw"); swapped=1
+  fi
+
+  # Pass 2: translate the software encoders' rate-control and tuning options
+  if (( swapped )); then
+    local -A level=(ultrafast 1 superfast 1 veryfast 2 faster 3 fast 3 medium 4 slow 5 slower 6 veryslow 7 placebo 7)
+    local -a qsv_presets=(veryfast faster fast medium slow slower veryslow) final
+    local -i q lv
+    i=1; n=$#out
+    while (( i <= n )); do
+      arg=$out[i]; val=$out[i+1]
+      case $arg in
+        -crf|-crf:v*)
+          q=$val; (( q > 51 )) && q=51; (( q < 1 )) && q=1
+          if [[ $hw == nvenc ]]; then final+=(-rc vbr -cq $q -b:v 0); else final+=(-global_quality $q); fi
+          (( i += 2 )); continue ;;
+        -preset|-preset:v*)
+          if [[ $val == <-> ]]; then lv=$(( 7 - val / 2 )); (( lv < 1 )) && lv=1   # SVT-AV1 0..13
+          else lv=${level[$val]:-0}; fi
+          if (( lv )); then
+            if [[ $hw == nvenc ]]; then final+=($arg p$lv); else final+=($arg $qsv_presets[lv]); fi
+          else
+            final+=($arg $val)   # already a hardware preset name
+          fi
+          (( i += 2 )); continue ;;
+        -tune|-tune:v*)
+          if [[ $hw == nvenc && $val == zerolatency ]]; then final+=($arg ull)
+          elif [[ $hw == nvenc && $val == (hq|uhq|ll|ull|lossless) ]]; then final+=($arg $val); fi
+          (( i += 2 )); continue ;;
+        -x264-params|-x265-params|-svtav1-params|-aom-params|-rav1e-params|-x264opts)
+          (( i += 2 )); continue ;;
+      esac
+      final+=($arg); (( i++ ))
+    done
+    out=("${final[@]}")
+    [[ -t 2 ]] && print -ru2 -- "ffmpeg: ${(j:, :)notes} (FFMPEG_SOFTWARE=1 for software)"
+  fi
+  command ffmpeg "${out[@]}"
+}
+
+# ==============================================================================
 # Automatic Bytecode Compilation (zcompile)
 # Automatically compiles ~/.zshrc and ~/.p10k.zsh when changes are detected
 # ==============================================================================

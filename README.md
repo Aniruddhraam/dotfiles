@@ -249,6 +249,7 @@ Without `zshenv`, zsh simply runs `/etc/zshrc` first as usual.
 | `cd`, `cdi` | zoxide's jump commands replace `cd` (`--cmd cd`); `cdi` picks a directory interactively |
 | `extract <file>...` | Unpack almost any archive type, using the multithreaded tool when it is installed |
 | `compress <type> <path> [level]` | Create an archive, e.g. `compress tar.zst mydir -19`. Press `Tab` to list types and levels. |
+| `ffmpeg` | Encodes video on the GPU: `libx264`, `libx265` and the AV1 software encoders (and ffmpeg's default `libx264` for `.mp4`, `.m4v`, `.mkv` and `.mov` outputs) become NVENC, or Quick Sync when the NVIDIA driver isn't loaded. `-crf`, `-preset` and `-tune` are translated to the hardware encoder's options. `FFMPEG_HW=nvenc\|qsv` picks the family; `FFMPEG_SOFTWARE=1` or `command ffmpeg` runs plain ffmpeg. Scripts never see the function. |
 | `dnsplain` / `portal-mode` | Point `/etc/resolv.conf` at the network's own DHCP DNS, for captive-portal logins |
 | `dnsodoh` / `secure-mode` | Switch back to the local `dnscrypt-proxy` (ODoH) resolver and check that it resolves |
 | `dnsstatus` | Show the active DNS mode and time a lookup |
