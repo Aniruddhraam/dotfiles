@@ -1,12 +1,13 @@
 # Neovim and Zsh Configuration
 
-Two dotfiles in one repo: a single-file Neovim setup and a Zsh setup. The Neovim setup is built on [lazy.nvim](https://github.com/folke/lazy.nvim). It targets **Neovim 0.12+** and is tuned for the [Ghostty](https://ghostty.org) terminal on Linux. Parts of it also handle macOS and Windows paths. The Zsh setup (`zshrc`) is built on [Oh My Zsh](https://ohmyz.sh) and [Powerlevel10k](https://github.com/romkatv/powerlevel10k), and is written for Linux.
+Two dotfiles in one repo: a Neovim setup (one `init.lua` plus a small terminal module) and a Zsh setup. The Neovim setup is built on [lazy.nvim](https://github.com/folke/lazy.nvim). It targets **Neovim 0.12+** and is tuned for the [Ghostty](https://ghostty.org) terminal on Linux. Parts of it also handle macOS and Windows paths. The Zsh setup (`zshrc`) is built on [Oh My Zsh](https://ohmyz.sh) and [Powerlevel10k](https://github.com/romkatv/powerlevel10k), and is written for Linux.
 
 ## Repository layout
 
 | File | Purpose |
 | --- | --- |
-| `init.lua` | The whole Neovim configuration, split into numbered sections (see below) |
+| `init.lua` | The Neovim configuration, split into numbered sections (see below) |
+| `lua/terminals.lua` | Numbered floating and split terminals (`<C-\>`, `:ToggleTerm`), built only on Neovim's API. It replaces toggleterm.nvim |
 | `after/ftplugin/python.lua` | Python buffer options (4-space indent, conform `formatexpr`) |
 | `after/indent/python.lua` | Python indentation that uses treesitter to ignore brackets and `#` inside strings and comments |
 | `shortcuts.md` | The shortcuts sheet that `?` opens as a read-only tab in any project |
@@ -29,7 +30,7 @@ Two dotfiles in one repo: a single-file Neovim setup and a Zsh setup. The Neovim
 | 4 | Editor options, autocmds, file/layout guards, external-change watching, and jupytext sync |
 | 5 | Commands and keymaps, plus `BinaryGuard` (binary, document and large-file handling) |
 | 6 | VS Code-style copy / cut / paste |
-| 7 | Terminals (toggleterm, lazygit) |
+| 7 | Terminals (`lua/terminals.lua`, lazygit) |
 
 ### Installation
 
@@ -77,10 +78,10 @@ oxfmt follows the nearest formatting config between the file and its project roo
 | Appearance | tokyonight (OLED, transparent), lualine, bufferline, dropbar, noice (also draws the input prompts next to the cursor), nvim-highlight-colors, mini.indentscope, nvim-scrollbar, smear-cursor |
 | Navigation | nvim-tree, aerial (code outline), fzf-lua, flash, which-key |
 | Editing | blink.cmp, mini.pairs, mini.bufremove, conform, treesitter |
-| Git | gitsigns, lazygit (through toggleterm) |
+| Git | gitsigns, lazygit (in a floating terminal) |
 | Diagnostics and debugging | trouble, nvim-dap with dap-ui and delve (Go) |
 | Notebooks and media | molten-nvim, image.nvim, pdfpreview.nvim, render-markdown, rainbow_csv |
-| Sessions and terminal | auto-session, alpha (dashboard), toggleterm |
+| Sessions | auto-session, alpha (dashboard) |
 
 Most plugins load lazily, on a command, key, filetype, or `VeryLazy`. `image.nvim` only loads when an image file is opened. `pdfpreview.nvim` loads at startup so it can take over `.pdf` buffers.
 
@@ -151,6 +152,9 @@ Search is literal by default: `/` (and `?` in Visual mode) are prefixed with `\V
 | `:AsyncDelete [path]` | Delete a file or folder in the background |
 | `:CleanDeletedBuffers` | Close unmodified buffers whose file was deleted on disk |
 | `:ClearProjects` | Remove the legacy project history file |
+| `:[N]ToggleTerm [direction=float\|horizontal\|vertical] [size=N] [dir=path] [name=title]` | Toggle terminal N, or all open terminals |
+| `:ToggleTermToggleAll` | Close every terminal, or open them all |
+| `:[N]TermExec cmd='…' [go_back=0] [open=0]` | Run a command in terminal N (or the first one) |
 
 ### Customising
 
@@ -162,7 +166,7 @@ Search is literal by default: `/` (and `?` in Visual mode) are prefixed with `\V
 
 #### Comment conventions
 
-Comments in `init.lua` and the `after/` files follow one style:
+Comments in `init.lua`, `lua/` and the `after/` files follow one style:
 
 - Explain *why*, not what the next line already says.
 - Use complete sentences: capitalised, ending in a period. Plugin and section titles are short labels without a period.

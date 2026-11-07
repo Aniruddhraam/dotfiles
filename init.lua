@@ -8,7 +8,7 @@
 --   4. Core editor settings, autocmds, file/layout guards, and treesitter highlighting
 --   5. Commands and keymaps (navigation, selection, clipboard)
 --   6. VS Code-style copy, cut, and paste
---   7. Terminals (toggleterm, lazygit)
+--   7. Terminals (lua/terminals.lua, lazygit)
 -- =========================================================================
 
 -- =========================================================================
@@ -369,7 +369,7 @@ require("lazy").setup({
             local buf = vim.api.nvim_win_get_buf(win)
             local ft = vim.bo[buf].filetype
             local cfg = vim.api.nvim_win_get_config(win)
-            if cfg.relative == "" and ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "toggleterm" and ft ~= "trouble" then
+            if cfg.relative == "" and ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "terminals" and ft ~= "trouble" then
               vim.api.nvim_set_current_win(win)
               if ft == "alpha" then
                 local scratch = vim.api.nvim_create_buf(true, false)
@@ -723,7 +723,7 @@ require("lazy").setup({
               local buf = vim.api.nvim_win_get_buf(win)
               local ft = vim.bo[buf].filetype
               local name = vim.api.nvim_buf_get_name(buf)
-              if ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "alpha" and name ~= "" then
+              if ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "terminals" and ft ~= "trouble" and ft ~= "alpha" and name ~= "" then
                 table.insert(file_wins, win)
               end
             end
@@ -1036,7 +1036,7 @@ require("lazy").setup({
               local b = vim.api.nvim_win_get_buf(win)
               local ft = vim.api.nvim_get_option_value("filetype", { buf = b })
               local name = vim.api.nvim_buf_get_name(b)
-              if ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "alpha" and name ~= "" then
+              if ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "terminals" and ft ~= "trouble" and ft ~= "alpha" and name ~= "" then
                 has_code_win = true
                 break
               end
@@ -1071,7 +1071,7 @@ require("lazy").setup({
             if cfg.relative == "" then
               local buf = vim.api.nvim_win_get_buf(win)
               local ft = vim.api.nvim_get_option_value("filetype", { buf = buf })
-              if ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "alpha" then
+              if ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "terminals" and ft ~= "trouble" and ft ~= "alpha" then
                 vim.api.nvim_set_current_win(win)
                 return win
               end
@@ -1292,7 +1292,7 @@ require("lazy").setup({
               picker = "default",
               chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
               exclude = {
-                filetype = { "notify", "lazy", "mason", "qf", "diff", "fugitive", "fugitiveblame", "aerial", "NvimTree", "toggleterm", "trouble", "alpha" },
+                filetype = { "notify", "lazy", "mason", "qf", "diff", "fugitive", "fugitiveblame", "aerial", "NvimTree", "terminals", "trouble", "alpha" },
                 buftype = { "nofile", "terminal", "help", "quickfix" },
               },
             },
@@ -2463,24 +2463,6 @@ require("lazy").setup({
   { "lewis6991/gitsigns.nvim", event = "VeryLazy", config = function() require("gitsigns").setup({ current_line_blame = false, max_file_length = 20000, current_line_blame_opts = { delay = 500, virt_text_pos = 'eol' } }) end,
     keys = { { "<leader>gb", "<cmd>Gitsigns toggle_current_line_blame<CR>", desc = "Toggle Line Blame" } },
   },
-  {
-    "akinsho/toggleterm.nvim",
-    version = "*",
-    -- Loads on first use instead of at startup: one of its commands, <C-\>, or a terminal helper in
-    -- section 7, which requires it. Once loaded it maps <C-\> itself (Normal and Insert mode, and
-    -- Terminal mode in its own terminals), replacing this stub.
-    cmd = { "ToggleTerm", "ToggleTermToggleAll", "TermExec" },
-    keys = { { [[<c-\>]], mode = { "n", "i" }, desc = "Toggle Terminal" } },
-    config = function()
-      require("toggleterm").setup({
-        size = 20, open_mapping = [[<c-\>]], direction = "float", shade_terminals = false, float_opts = { border = "curved" },
-        on_open = function(term)
-          if _G.Update_Term_Winbar then _G.Update_Term_Winbar(term.window) end
-          vim.cmd("startinsert!")
-        end,
-      })
-    end,
-  },
 
   -- Image viewer (image.nvim, Kitty graphics protocol); loads only when an image file is opened
   {
@@ -2602,7 +2584,7 @@ require("lazy").setup({
           "neo-tree",
           "NvimTree",
           "notify",
-          "toggleterm",
+          "terminals",
           "trouble",
           "checkhealth",
           "aerial",
@@ -3377,7 +3359,7 @@ vim.api.nvim_create_autocmd("TextYankPost", {
 
 -- Buffers where idle and focus autocmds (diagnostic float, checktime) must not run.
 local ignored_ft = {
-  [""] = true, NvimTree = true, aerial = true, toggleterm = true,
+  [""] = true, NvimTree = true, aerial = true, terminals = true,
   trouble = true, alpha = true, lazy = true, mason = true,
 }
 local function is_ignored_buffer()
@@ -3464,7 +3446,7 @@ vim.api.nvim_create_autocmd({ "BufDelete", "BufWipeout" }, {
               tree_win = win
             elseif ft == "aerial" then
               aerial_win = win
-            elseif ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "alpha" then
+            elseif ft ~= "terminals" and ft ~= "trouble" and ft ~= "alpha" then
               has_normal_win = true
             end
           end
@@ -4108,12 +4090,12 @@ vim.keymap.set('n', '<leader>fp', function() _G.Open_Project_In_Tree() end, { no
 vim.keymap.set("n", "<leader>a", function()
   -- From a sidebar, switch to the code window first.
   local ft = vim.bo.filetype
-  if ft == "NvimTree" or ft == "aerial" or ft == "toggleterm" or ft == "trouble" then
+  if ft == "NvimTree" or ft == "aerial" or ft == "terminals" or ft == "trouble" then
     for _, win in ipairs(vim.api.nvim_list_wins()) do
       local buf = vim.api.nvim_win_get_buf(win)
       local wft = vim.api.nvim_get_option_value("filetype", { buf = buf })
       local cfg = vim.api.nvim_win_get_config(win)
-      if cfg.relative == "" and wft ~= "NvimTree" and wft ~= "aerial" and wft ~= "toggleterm" and wft ~= "trouble" and wft ~= "alpha" then
+      if cfg.relative == "" and wft ~= "NvimTree" and wft ~= "aerial" and wft ~= "terminals" and wft ~= "trouble" and wft ~= "alpha" then
         vim.api.nvim_set_current_win(win)
         break
       end
@@ -4162,7 +4144,7 @@ local function cycle_panel_focus(reverse)
       local buf = vim.api.nvim_win_get_buf(win)
       local ft = vim.api.nvim_get_option_value("filetype", { buf = buf })
       local cfg = vim.api.nvim_win_get_config(win)
-      if cfg.relative == "" and ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "alpha" then
+      if cfg.relative == "" and ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "terminals" and ft ~= "trouble" and ft ~= "alpha" then
         return win
       end
     end
@@ -4236,7 +4218,7 @@ vim.keymap.set({'n', 'i', 'v'}, '<M-S-e>', function() cycle_panel_focus(true) en
 local function is_code_win(win)
   if vim.api.nvim_win_get_config(win).relative ~= "" then return false end
   local ft = vim.bo[vim.api.nvim_win_get_buf(win)].filetype
-  return ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "alpha"
+  return ft ~= "NvimTree" and ft ~= "aerial" and ft ~= "terminals" and ft ~= "trouble" and ft ~= "alpha"
 end
 
 --- Find another pane in the current tab that shows the buffer.
@@ -4336,7 +4318,7 @@ local function get_normal_window_count()
     if config.relative == "" then
       local buf = vim.api.nvim_win_get_buf(win)
       local ft = vim.api.nvim_get_option_value("filetype", { buf = buf })
-      if ft ~= "NvimTree" and ft ~= "toggleterm" and ft ~= "trouble" and ft ~= "aerial" and ft ~= "alpha" then
+      if ft ~= "NvimTree" and ft ~= "terminals" and ft ~= "trouble" and ft ~= "aerial" and ft ~= "alpha" then
         count = count + 1
       end
     end
@@ -5460,26 +5442,49 @@ vim.keymap.set('n', '<leader>U', function()
 end, { noremap = true, silent = true, desc = "Update Plugins (Lazy)" })
 
 -- =========================================================================
--- 7. TERMINALS (toggleterm, lazygit)
+-- 7. TERMINALS (lua/terminals.lua, lazygit)
 -- =========================================================================
+-- lua/terminals.lua runs the terminals. It loads on first use: one of the keys or commands below,
+-- or a terminal helper in this section.
+local function Terminals()
+  local terminals = require("terminals")
+  if not terminals.configured then
+    terminals.setup({
+      size = 20, direction = "float", open_mapping = [[<C-\>]], float_opts = { border = "rounded" },
+      on_open = function(term)
+        if _G.Update_Term_Winbar then _G.Update_Term_Winbar(term.window) end
+        vim.cmd("startinsert!")
+      end,
+    })
+  end
+  return terminals
+end
+
+-- :ToggleTerm [direction=float|horizontal|vertical] [size=N] [dir=path] [name=title], with a count
+-- for a numbered terminal (no count: toggle all open ones, or reopen the last ones).
+vim.api.nvim_create_user_command("ToggleTerm", function(opts) Terminals().toggle_command(opts.args, opts.count) end,
+  { count = true, nargs = "*", complete = function(...) return Terminals().complete(false)(...) end, desc = "Toggle a terminal" })
+vim.api.nvim_create_user_command("ToggleTermToggleAll", function() Terminals().toggle_all() end,
+  { bang = true, desc = "Close all terminals, or open them all" })
+-- :[N]TermExec cmd='...' [go_back=0] [open=0] plus the :ToggleTerm arguments.
+vim.api.nvim_create_user_command("TermExec", function(opts) Terminals().exec_command(opts.args, opts.count) end,
+  { count = true, nargs = "*", complete = function(...) return Terminals().complete(true)(...) end, desc = "Run a command in a terminal" })
+-- <C-\> toggles from Normal and Insert mode ([N]<C-\> for terminal N). Inside a terminal, the
+-- module maps it in Terminal mode.
+vim.keymap.set('n', [[<C-\>]], '<Cmd>execute v:count . "ToggleTerm"<CR>', { silent = true, desc = "Toggle Terminal" })
+vim.keymap.set('i', [[<C-\>]], '<Esc><Cmd>ToggleTerm<CR>', { silent = true, desc = "Toggle Terminal" })
+
 local _lazygit_instance = nil
 function _lazygit_toggle()
-  local status_ok, tt_api = pcall(require, "toggleterm.terminal")
-  if not status_ok then return end
   if not _lazygit_instance then
-    _lazygit_instance = tt_api.Terminal:new({ cmd = "lazygit", hidden = true, direction = "float", float_opts = { border = "curved" } })
+    _lazygit_instance = Terminals().new({ cmd = "lazygit", hidden = true, direction = "float" })
   end
   _lazygit_instance:toggle()
 end
 vim.keymap.set('n', '<leader>gg', '<cmd>lua _lazygit_toggle()<CR>', { noremap = true, silent = true, desc = "Toggle Lazygit" })
 
 local function get_terms()
-  local status_ok, tt_api = pcall(require, "toggleterm.terminal")
-  if not status_ok then return {} end
-  local terms = {}
-  for _, t in pairs(tt_api.get_all()) do table.insert(terms, t) end
-  table.sort(terms, function(a, b) return a.id < b.id end)
-  return terms
+  return Terminals().get_all()
 end
 
 function _G.Update_Term_Winbar(win_id)
@@ -5491,7 +5496,7 @@ function _G.Update_Term_Winbar(win_id)
     else bar = bar .. "%#Comment# ○ Term " .. t.id .. " %#Normal#  " end
   end
   local buf = vim.api.nvim_win_get_buf(win_id)
-  if vim.bo[buf].filetype == "toggleterm" then pcall(vim.api.nvim_set_option_value, 'winbar', bar, { win = win_id }) end
+  if vim.bo[buf].filetype == "terminals" then pcall(vim.api.nvim_set_option_value, 'winbar', bar, { win = win_id }) end
 end
 
 function _G.Term_New()

@@ -130,6 +130,7 @@ Close it with `?`, `q` or `<leader>w`. The leader key is `Space`: press it and w
 | Key | Action |
 | --- | --- |
 | `<C-\>` | Toggle a floating terminal |
+| `{N}<C-\>` | Toggle terminal N |
 | `<leader>th` / `<leader>tv` | Horizontal / vertical terminal |
 | `<M-t>` / `<M-w>` | New / close terminal (Terminal mode) |
 | `<M-]>` / `<M-[>` | Next / previous terminal (Terminal mode) |
@@ -189,3 +190,6 @@ Close it with `?`, `q` or `<leader>w`. The leader key is `Space`: press it and w
 | `:AsyncDelete [path]` | Delete a file or folder in the background |
 | `:CleanDeletedBuffers` | Close unmodified buffers whose file was deleted on disk |
 | `:ClearProjects` | Remove the legacy project history file |
+| `:[N]ToggleTerm [direction=…] [size=N] [dir=path]` | Toggle terminal N, or all open terminals |
+| `:ToggleTermToggleAll` | Close every terminal, or open them all |
+| `:[N]TermExec cmd='…'` | Run a command in terminal N (or the first one) |
