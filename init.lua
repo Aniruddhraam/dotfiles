@@ -2379,7 +2379,7 @@ require("lazy").setup({
     },
   },
 
-  { "echasnovski/mini.bufremove", version = "*", event = "VeryLazy", config = function() require("mini.bufremove").setup() end },
+  { "nvim-mini/mini.bufremove", version = "*", event = "VeryLazy", config = function() require("mini.bufremove").setup() end },
   {
     "mechatroner/rainbow_csv",
     ft = { "csv", "tsv" },
@@ -2458,7 +2458,7 @@ require("lazy").setup({
       vim.api.nvim_create_autocmd("User", { group = group, pattern = "GitSignsUpdate", callback = refresh_statusline })
     end,
   },
-  { "echasnovski/mini.pairs", version = "*", event = "VeryLazy", config = function() require("mini.pairs").setup() end },
+  { "nvim-mini/mini.pairs", version = "*", event = "VeryLazy", config = function() require("mini.pairs").setup() end },
   { "folke/which-key.nvim", event = "VeryLazy", config = function() require("which-key").setup({ delay = 500, win = { border = "rounded" } }) end },
   { "lewis6991/gitsigns.nvim", event = "VeryLazy", config = function() require("gitsigns").setup({ current_line_blame = false, max_file_length = 20000, current_line_blame_opts = { delay = 500, virt_text_pos = 'eol' } }) end,
     keys = { { "<leader>gb", "<cmd>Gitsigns toggle_current_line_blame<CR>", desc = "Toggle Line Blame" } },
@@ -2590,7 +2590,7 @@ require("lazy").setup({
 
   -- Indent guides with an animated current-scope line
   {
-    "echasnovski/mini.indentscope",
+    "nvim-mini/mini.indentscope",
     version = "*",
     event = "VeryLazy",
     opts = {
