@@ -20,6 +20,23 @@ export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
 export PATH="/usr/local/cuda/bin:$PATH"
 
 
+# Builds: every CPU thread for make and `cmake --build`, Ninja as CMake's generator, ccache for
+# C, C++ and CUDA, and mold as the linker. gcc, cc, c++ and clang already run through ccache via
+# Fedora's /usr/lib64/ccache wrappers on PATH; the CMake launchers also cover CUDA and projects
+# that name a compiler by full path. COMPILER_PATH makes gcc, clang and nvcc link with mold
+# (/usr/libexec/mold holds only an `ld` that is mold; -fuse-ld=bfd still picks GNU ld). The
+# system ld stays GNU ld, so kernel-module builds such as akmod-nvidia are unaffected. Rust's
+# sccache and mold settings are in ~/.cargo/config.toml.
+() {
+  local -i ncpu=${#${(M)${(f)"$(</proc/cpuinfo)"}:#processor*}}   # read without a subprocess
+  (( ncpu )) || ncpu=$(nproc)
+  export MAKEFLAGS="-j$ncpu" CMAKE_BUILD_PARALLEL_LEVEL=$ncpu
+}
+(( $+commands[ninja] )) && export CMAKE_GENERATOR=Ninja
+(( $+commands[ccache] )) &&
+  export CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache CMAKE_CUDA_COMPILER_LAUNCHER=ccache
+[[ -x /usr/libexec/mold/ld ]] && export COMPILER_PATH=/usr/libexec/mold
+
 # Plugins are managed by antidote (https://antidote.sh) and listed, in load order, in
 # ~/.zsh_plugins.txt: Oh My Zsh's library and plugins, fzf-tab, zsh-autosuggestions,
 # fast-syntax-highlighting and the Powerlevel10k prompt. Oh My Zsh comes from antidote's clone,

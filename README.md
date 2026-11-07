@@ -210,7 +210,7 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 | Part | Contents |
 | --- | --- |
 | Prompt | Powerlevel10k instant prompt, kept at the very top, then `/etc/zshrc` (see [Startup order](#startup-order)) |
-| Environment | `PATH` (`~/.local/bin`, `~/go/bin`, `~/.cargo/bin`), the Oh My Zsh variables (`ZSH`, `ZSH_CUSTOM`, `ZSH_CACHE_DIR`) pointed at antidote's clone, `EDITOR` / `VISUAL` set to `nvim` |
+| Environment | `PATH` (`~/.local/bin`, `~/go/bin`, `~/.cargo/bin`), build defaults (see [Builds](#builds)), the Oh My Zsh variables (`ZSH`, `ZSH_CUSTOM`, `ZSH_CACHE_DIR`) pointed at antidote's clone, `EDITOR` / `VISUAL` set to `nvim` |
 | History and options | 50,000 entries in `~/.zsh_history`, shared across terminals, duplicates removed, secret-looking commands never written (see below), `AUTO_CD`, `AUTO_PUSHD`, no beep |
 | Plugins | Loaded by antidote from `~/.zsh_plugins.txt`: Oh My Zsh's library, its `git` plugin, `fzf-tab`, `zsh-autosuggestions` (async), Oh My Zsh's `sudo`, `copypath` and `copyfile`, `fast-syntax-highlighting` and Powerlevel10k, plus `zsh-completions` on `fpath`. antidote is autoloaded and only runs when the list changes; otherwise the shell sources the compiled static file `~/.zsh_plugins.zsh`. Oh My Zsh's magic functions (`url-quote-magic`, `bracketed-paste-magic`) are off. |
 | fzf | `fd` as the file source, `bat` and `eza` previews, and the fzf key bindings loaded through `_cache_eval` |
@@ -223,6 +223,19 @@ See [Zsh and shell tools](#zsh-and-shell-tools-dnf-and-git) at the end of this f
 | zoxide | Initialised last, replacing `cd` |
 
 `_cache_eval` caches the output of slow `eval "$(tool init)"` calls (fzf, zoxide) under `~/.cache/zsh` and regenerates it when the tool's binary changes. This keeps startup fast.
+
+### Builds
+
+`zshrc` sets build defaults for every shell, and `~/.cargo/config.toml` does the same for Rust (see [Rust toolchain](#rust-toolchain-rustup-and-cargo)):
+
+| Setting | Effect |
+| --- | --- |
+| `MAKEFLAGS=-jN`, `CMAKE_BUILD_PARALLEL_LEVEL=N` | `make` and `cmake --build` use every CPU thread (N is read from `/proc/cpuinfo`). Pass `make -j1` for a Makefile that can't build in parallel. |
+| `CMAKE_GENERATOR=Ninja` | New CMake build directories use Ninja. Existing ones keep the generator they were configured with. |
+| `CMAKE_{C,CXX,CUDA}_COMPILER_LAUNCHER=ccache` | CMake compiles go through ccache, including CUDA. `gcc`, `cc`, `c++` and `clang` already do everywhere through Fedora's `/usr/lib64/ccache` wrappers on `PATH`. |
+| `COMPILER_PATH=/usr/libexec/mold` | Links run by `gcc`, `clang` and `nvcc` use mold (that directory holds only an `ld` that is mold). `-fuse-ld=bfd` still picks GNU ld. The system `ld` stays GNU ld, so kernel-module builds such as `akmod-nvidia` are unaffected. |
+
+Each setting is skipped when its tool is missing. Check the caches with `ccache -s` and `sccache --show-stats`.
 
 ### Startup order
 
@@ -314,6 +327,9 @@ The config prefers compiled tools over Neovim's built-in or scripted equivalents
 | mypyc-compiled `black` | Pure-Python `black` | About 1.6x faster per format. `upall` builds it with mypyc when PyPI has no compiled wheel for the system Python | Python formatting |
 | `black`, `jupytext` via `uv` | `pip` installs | Isolated tool environments, installed in seconds | Python formatting and notebooks |
 | `magick` | `convert` (ImageMagick 6) | Current ImageMagick 7 CLI | image.nvim |
+| `mold` | GNU ld, rust-lld | A parallel linker, much faster on large binaries | C, C++, CUDA and Rust links (see [Builds](#builds)) |
+| `ccache`, `sccache` | Uncached compiles | Repeat compiles of unchanged sources come from a cache: ccache for C, C++ and CUDA, sccache for Rust crates | C/C++/CUDA builds, Cargo builds and `cargo install` |
+| Ninja | Make, for CMake projects | Faster dependency scanning and full parallelism by default | CMake builds |
 
 ### System packages (`dnf`)
 
@@ -323,6 +339,7 @@ These are best from the distribution: they are C/C++/Go/Rust binaries built and 
 sudo dnf install -y git neovim gcc make \
     fzf fd-find ripgrep \
     clang clang-tools-extra \
+    cmake ninja-build mold ccache sccache \
     ImageMagick
 ```
 
@@ -354,6 +371,19 @@ rustup component add rust-analyzer rustfmt clippy
 cargo install --locked taplo-cli pqrs
 cargo install --locked --git https://github.com/latex-lsp/texlab --tag v5.26.0 texlab
 ```
+
+Cache and link every Cargo build with sccache and mold (both from `dnf`, see [System packages](#system-packages-dnf)) through `~/.cargo/config.toml`:
+
+```toml
+[build]
+rustc-wrapper = "sccache"
+
+# Rust links with its bundled rust-lld on this target by default; the later -fuse-ld=mold overrides that.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+```
+
+sccache skips incremental crates (your own crate in debug builds), so it speeds up dependencies and `cargo install`.
 
 texlab stopped publishing to crates.io at 4.3.2, so it is built from its latest GitHub release tag instead; `upall` rebuilds it whenever a newer release appears. `cargo binstall` (if installed) downloads prebuilt binaries instead of compiling: `cargo binstall taplo-cli pqrs`. `pqrs` is optional and only used to preview parquet files. Make sure `~/.cargo/bin` is on `PATH`. The config prepends it automatically.
 
