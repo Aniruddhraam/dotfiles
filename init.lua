@@ -5266,7 +5266,8 @@ vim.api.nvim_create_autocmd("ModeChanged", {
 
 local function ensure_visual_mode()
   local mode = vim.api.nvim_get_mode().mode
-  if mode:find("s") then
+  -- Select mode, charwise (s), linewise (S, e.g. a mouse triple-click) or blockwise (CTRL-S).
+  if mode:find("^[sS\19]") then
     local cg = vim.api.nvim_replace_termcodes("<C-g>", true, false, true)
     vim.api.nvim_feedkeys(cg, "x", false)
   end
