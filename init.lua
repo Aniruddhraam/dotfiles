@@ -4946,6 +4946,56 @@ vim.api.nvim_create_autocmd("TermOpen", {
 vim.api.nvim_create_autocmd({ "BufEnter", "WinEnter", "TermEnter" }, { group = term_group, callback = term_enter })
 vim.api.nvim_create_autocmd({ "BufLeave", "WinLeave" }, { group = term_group, callback = term_leave })
 
+-- Screen dump, Ctrl+Alt+Shift+J. The Ghostty binding writes its screen to /tmp/<id>/screen.txt and
+-- types <C-M-S-j>, the file's path, then <C-M-S-k> (see ~/.config/ghostty/config). Ghostty's screen
+-- is nvim's whole UI, so in a terminal buffer this opens that terminal's own scrollback instead. In
+-- any other buffer it opens Ghostty's file. ~/.zshrc handles the same keys at a plain prompt.
+
+--- Read the path Ghostty types after <C-M-S-j>, up to <C-M-S-k>. Gives up after a second.
+---@return string?
+local function read_dump_path()
+  local stop = vim.fn.keytrans(vim.keycode("<C-M-S-k>"))
+  local chars, deadline = {}, vim.uv.hrtime() + 1e9
+  while vim.uv.hrtime() < deadline do
+    local c = vim.fn.getcharstr(0)
+    if c == "" then
+      vim.wait(5)
+    elseif vim.fn.keytrans(c) == stop then
+      return table.concat(chars)
+    else
+      chars[#chars + 1] = c
+    end
+  end
+end
+
+--- Write a terminal buffer's scrollback and screen to /tmp/nvim-term-<id>/screen.txt and open it.
+local function dump_terminal(buf)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  for i, line in ipairs(lines) do lines[i] = line:gsub("%s+$", "") end
+  while #lines > 0 and lines[#lines] == "" do lines[#lines] = nil end
+  local tmp = vim.env.TMPDIR or "/tmp"
+  local dir = vim.uv.fs_mkdtemp(tmp .. "/nvim-term-XXXXXX")
+  if not dir then
+    vim.notify("Screen dump: could not create a directory in " .. tmp, vim.log.levels.ERROR)
+    return
+  end
+  local path = dir .. "/screen.txt"
+  if vim.fn.writefile(lines, path) ~= 0 then
+    vim.notify("Screen dump: could not write " .. path, vim.log.levels.ERROR)
+    return
+  end
+  open_external(path)
+end
+
+vim.keymap.set({ 'n', 'i', 'v', 'x', 's', 'c', 't' }, '<C-M-S-j>', function()
+  local ghostty_dump = read_dump_path()
+  if vim.bo.buftype == "terminal" then
+    dump_terminal(0)
+  elseif ghostty_dump and vim.uv.fs_stat(ghostty_dump) then
+    open_external(ghostty_dump)
+  end
+end, { silent = true, desc = "Open screen dump (a terminal buffer's own scrollback)" })
+
 -- Ctrl+Click a link to open it, in any buffer: a URL anywhere (code comments, plain text, hover
 -- popups, terminals), or a Markdown link to a URL, a file (opens in the editor) or a heading in
 -- the same file. With no link under the mouse, Ctrl+Click keeps its default (a tag jump, which

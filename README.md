@@ -299,7 +299,16 @@ A `zshaddhistory` hook drops commands that look like they carry a secret before 
 | --- | --- |
 | `Ctrl+R` / `Ctrl+T` / `Alt+C` | fzf history, file and directory search |
 | `Alt+j` / `Alt+k` | Down / up through history, matching what is already typed (same as the Neovim mappings) |
+| `Ctrl+Alt+Shift+J` | Open Ghostty's screen dump (sent by the Ghostty binding; inside Neovim, a terminal buffer's own scrollback) |
 | `Tab` | fzf-tab completion menu. `<` and `>` switch completion groups. |
+
+`Ctrl+Alt+Shift+J` needs this binding in `~/.config/ghostty/config`, in place of Ghostty's default `write_screen_file:open`. The binding writes the screen to `/tmp/<id>/screen.txt` and types the key, the file's path, then `Ctrl+Alt+Shift+K`. At the prompt, zsh opens that file. Inside Neovim, Ghostty's screen is the whole editor, so Neovim opens a terminal buffer's own scrollback instead; in other buffers it opens Ghostty's file.
+
+```
+keybind = ctrl+alt+shift+j=text:\x1b[106;8u
+keybind = chain=write_screen_file:paste,plain
+keybind = chain=text:\x1b[107;8u
+```
 
 ### Zsh customising
 

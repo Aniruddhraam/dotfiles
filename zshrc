@@ -1377,6 +1377,22 @@ clone() {
 bindkey '^[j' down-line-or-beginning-search
 bindkey '^[k' up-line-or-beginning-search
 
+# ctrl+alt+shift+j: the Ghostty binding writes its screen to /tmp/<id>/screen.txt and types this
+# key, the file's path, then ctrl+alt+shift+k (see ~/.config/ghostty/config). At the prompt, read
+# the path and open the file, as Ghostty's own binding did. Inside nvim, nvim takes these keys and
+# opens a terminal buffer's own scrollback instead.
+_open_screen_dump() {
+  local key dump= stop=$'\e[107;8u'
+  while read -rs -k 1 -t 1 key; do
+    dump+=$key
+    [[ $dump == *$stop ]] && break
+  done
+  dump=${dump%$stop}
+  [[ -f $dump ]] && { xdg-open $dump &>/dev/null &! }
+}
+zle -N _open_screen_dump
+bindkey '^[[106;8u' _open_screen_dump
+
 # zoxide (keep last)
 export _ZO_DOCTOR=0
 _cache_eval zoxide zoxide init zsh --cmd cd

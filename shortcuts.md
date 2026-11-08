@@ -137,6 +137,7 @@ Close it with `?`, `q` or `<leader>w`. The leader key is `Space`: press it and w
 | `<M-]>` / `<M-[>` | Next / previous terminal (Terminal mode) |
 | `<M-k>` / `<M-j>` | Previous / next shell command (Terminal mode) |
 | `<Esc><Esc>` | Leave Terminal mode |
+| `<C-M-S-j>` | Open the terminal's scrollback as a text file (Ghostty's screen dump in other buffers) |
 
 ## Debugging (Go / delve)
 
