@@ -2168,6 +2168,14 @@ require("lazy").setup({
       sources = {
         default = { "lsp", "path", "snippets", "buffer" },
       },
+      cmdline = {
+        -- vim.ui.input prompts opened from nvim-tree (create, rename, trash) get no completion:
+        -- otherwise the buffer source shows the next word as ghost text while typing a name.
+        sources = function()
+          if vim.fn.getcmdtype() == "@" and vim.bo.filetype == "NvimTree" then return {} end
+          return { "buffer", "cmdline" }
+        end,
+      },
       completion = {
         list = {
           selection = {
