@@ -2871,6 +2871,33 @@ vim.lsp.config("ty", {
 -- Rust (rust-analyzer). `cargo.features = "all"` replaces the legacy `cargo.allFeatures` key.
 -- `cargo.targetDir = true` gives its check runs their own target directory (target/rust-analyzer),
 -- so they no longer wait on, or invalidate, the Cargo build lock of `cargo build` / `cargo run`.
+--
+-- A .rs file that no `mod` declaration reaches yet gets rust-analyzer's "unlinked-file" warning
+-- and no analysis. When that warning arrives, the file is added to `linkedProjects` as a
+-- standalone file, so it gets type checking, completion and hover against std (its `crate::`
+-- paths and the crate's dependencies stay unresolved until it is declared with `mod`). Setting
+-- `linkedProjects` turns off rust-analyzer's own project discovery, so the projects it would have
+-- found (Cargo.toml / rust-project.json in the root and one directory down, as it searches)
+-- are listed too, plus the manifest nearest the file.
+local function rust_project_manifests(root)
+  local manifests, seen = {}, {}
+  local function add(path)
+    if path and not seen[path] and vim.uv.fs_stat(path) then
+      seen[path] = true
+      table.insert(manifests, path)
+    end
+  end
+  for _, name in ipairs({ "Cargo.toml", "rust-project.json" }) do
+    add(vim.fs.joinpath(root, name))
+    for child, kind in vim.fs.dir(root) do
+      if kind == "directory" and child ~= "target" and child:sub(1, 1) ~= "." then
+        add(vim.fs.joinpath(root, child, name))
+      end
+    end
+  end
+  return manifests
+end
+
 vim.lsp.config("rust_analyzer", {
   cmd = { "rust-analyzer" },
   filetypes = { "rust" },
@@ -2882,6 +2909,32 @@ vim.lsp.config("rust_analyzer", {
       cargo = { features = "all", targetDir = true },
     },
   },
+})
+
+-- Diagnostics come from rust-analyzer's pull requests or its pushes, so this watches the results.
+vim.api.nvim_create_autocmd("DiagnosticChanged", {
+  group = vim.api.nvim_create_augroup("rust_link_detached_files", { clear = true }),
+  pattern = "*.rs",
+  callback = function(ev)
+    local unlinked = vim.iter(ev.data.diagnostics):any(function(d) return d.code == "unlinked-file" end)
+    local client = unlinked and vim.lsp.get_clients({ bufnr = ev.buf, name = "rust_analyzer" })[1]
+    if not (client and client.root_dir) then return end
+    local file = vim.api.nvim_buf_get_name(ev.buf)
+    local ra = client.settings["rust-analyzer"]
+    ra.linkedProjects = ra.linkedProjects or rust_project_manifests(client.root_dir)
+    local nearest = vim.fs.find({ "Cargo.toml", "rust-project.json" }, { upward = true, path = vim.fs.dirname(file) })[1]
+    local changed = false
+    for _, path in ipairs(nearest and { nearest, file } or { file }) do
+      if not vim.list_contains(ra.linkedProjects, path) then
+        table.insert(ra.linkedProjects, path)
+        changed = true
+      end
+    end
+    if changed then
+      -- rust-analyzer answers this by pulling the settings again and reloading its projects.
+      client:notify("workspace/didChangeConfiguration", { settings = client.settings })
+    end
+  end,
 })
 
 -- Go (gopls, resolved from GOPATH; avoids the Mason copy, which Windows Device Guard can block)

@@ -75,6 +75,8 @@ oxfmt follows the nearest formatting config between the file and its project roo
 
 Python formats with `ruff format`, whose default style is Black's (88 columns, double quotes, magic trailing commas). Projects that format with Black get `black` instead: going up from the file to the project root, the nearest folder that configures either formatter decides. `[tool.black]` in pyproject.toml picks black. `[tool.ruff.format]` in pyproject.toml, `[format]` in `ruff.toml`, or any other Ruff config picks Ruff, and an explicit Ruff format section wins over a leftover `[tool.black]` in the same file. Only the file's parent folders are checked, never other folders in the tree, and each config is reread only when it changes, so the check costs well under a millisecond. `:ConformInfo` shows which one a buffer uses. Black runs get 3 s before timing out instead of 1 s, since black needs about 0.8 s for a 3,000-line file.
 
+Rust files that no `mod` declaration reaches yet are still analysed. rust-analyzer normally marks them "unlinked-file" and skips them, so the config adds each one to rust-analyzer's `linkedProjects` as a standalone file, next to the projects it found itself. Such a file gets type checking, completion and hover against std. Its `crate::` paths and the crate's dependencies resolve once it is declared with `mod`.
+
 ### Plugins
 
 | Area | Plugins |
