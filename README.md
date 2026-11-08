@@ -18,6 +18,7 @@ Two dotfiles in one repo: a Neovim setup (one `init.lua` plus a small terminal m
 | `zsh_plugins.txt` | The Zsh plugins antidote loads, in load order. Link it to `~/.zsh_plugins.txt` |
 | `zshenv` | Loads Cargo's environment and defers `/etc/zshrc` until after the instant prompt. Link it to `~/.zshenv` |
 | `p10k.zsh` | The Powerlevel10k prompt configuration. Link it to `~/.p10k.zsh` |
+| `ghostty_config` | The Ghostty configuration, including the `Ctrl+Alt+Shift+J` screen-dump binding. Link it to `~/.config/ghostty/config` |
 
 ## Neovim configuration
 
@@ -302,7 +303,7 @@ A `zshaddhistory` hook drops commands that look like they carry a secret before 
 | `Ctrl+Alt+Shift+J` | Open Ghostty's screen dump (sent by the Ghostty binding; inside Neovim, a terminal buffer's own scrollback) |
 | `Tab` | fzf-tab completion menu. `<` and `>` switch completion groups. |
 
-`Ctrl+Alt+Shift+J` needs this binding in `~/.config/ghostty/config`, in place of Ghostty's default `write_screen_file:open`. The binding writes the screen to `/tmp/<id>/screen.txt` and types the key, the file's path, then `Ctrl+Alt+Shift+K`. At the prompt, zsh opens that file. Inside Neovim, Ghostty's screen is the whole editor, so Neovim opens a terminal buffer's own scrollback instead; in other buffers it opens Ghostty's file.
+`Ctrl+Alt+Shift+J` needs this binding from `ghostty_config` in `~/.config/ghostty/config`, in place of Ghostty's default `write_screen_file:open`. The binding writes the screen to `/tmp/<id>/screen.txt` and types the key, the file's path, then `Ctrl+Alt+Shift+K`. At the prompt, zsh opens that file. Inside Neovim, Ghostty's screen is the whole editor, so Neovim opens a terminal buffer's own scrollback instead; in other buffers it opens Ghostty's file.
 
 ```
 keybind = ctrl+alt+shift+j=text:\x1b[106;8u

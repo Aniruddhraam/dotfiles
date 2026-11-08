@@ -1,0 +1,45 @@
+font-family = "JetBrainsMono Nerd Font"
+font-size = 12
+background = #000000
+background-opacity = 0.8
+fullscreen = true
+
+# Startup
+# Stay running after the last window closes, so a new window (ghostty-window, the desktop entries)
+# opens in the running instance in ~100 ms instead of a 600-800 ms cold start. The
+# app-com.mitchellh.ghostty.service user unit starts it, windowless, at login.
+quit-after-last-window-closed = false
+
+# Window Appearance
+window-padding-x = 8
+window-padding-y = 8
+window-padding-balance = true
+window-theme = dark
+
+# Cursor
+cursor-style = bar
+cursor-style-blink = true
+
+# Mouse & Selection
+mouse-hide-while-typing = true
+copy-on-select = clipboard
+
+# Scrollback Buffer
+# Ghostty 1.3 reads `scrollback-limit` as bytes (100000 was only 100 KB); this counts lines.
+scrollback-limit-lines = 100000
+
+# Keybinds
+# Free ctrl+enter (Ghostty default: toggle_fullscreen) so Claude Code can use it
+keybind = ctrl+enter=unbind
+# ctrl+alt+shift+j (default: write_screen_file:open): write the screen to /tmp/<id>/screen.txt and
+# type ctrl+alt+shift+j (CSI u), the file's path, then ctrl+alt+shift+k, so the program opens the
+# right dump. zsh opens this file at the prompt (~/.zshrc). nvim opens a terminal buffer's own
+# scrollback instead, since this screen is nvim's whole UI (~/.config/nvim/init.lua).
+keybind = ctrl+alt+shift+j=text:\x1b[106;8u
+keybind = chain=write_screen_file:paste,plain
+keybind = chain=text:\x1b[107;8u
+
+# Shell Integration
+shell-integration = detect
+confirm-close-surface = false
+
