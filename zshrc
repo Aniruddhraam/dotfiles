@@ -19,6 +19,10 @@ export PATH="$HOME/.local/bin:$HOME/go/bin:$HOME/.cargo/bin:$PATH"
 # CUDA toolkit (nvcc)
 export PATH="/usr/local/cuda/bin:$PATH"
 
+# OpenMPI (mpicc, mpirun) — same paths as `module load mpi/openmpi-x86_64`
+export PATH="/usr/lib64/openmpi/bin:$PATH"
+export LD_LIBRARY_PATH="/usr/lib64/openmpi/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
 
 # Builds: every CPU thread for make and `cmake --build`, Ninja as CMake's generator, ccache for
 # C, C++ and CUDA, and mold as the linker. gcc, cc, c++ and clang already run through ccache via
@@ -1396,3 +1400,7 @@ bindkey '^[[106;8u' _open_screen_dump
 # zoxide (keep last)
 export _ZO_DOCTOR=0
 _cache_eval zoxide zoxide init zsh --cmd cd
+
+
+# Added by Antigravity CLI installer
+export PATH="$HOME/.local/bin:$PATH"
