@@ -1791,13 +1791,21 @@ require("lazy").setup({
         return false
       end
 
+      --- The project that holds `filename`: the open project when it contains the file, else the
+      --- Git root, else nil.
+      ---@param filename string Absolute path of the file being formatted
+      ---@return string?
+      local function project_root_of(filename)
+        return (_G._project_root and vim.fs.relpath(_G._project_root, filename) and _G._project_root)
+          or vim.fs.root(filename, ".git")
+      end
+
       --- Find the nearest formatting config, from the file's directory up to its project root.
       --- At the same level, an oxfmt config beats a Prettier config.
       ---@param filename string Absolute path of the file being formatted
       ---@return "oxfmt"|"prettier"|nil kind, string? path, string root
       local function find_format_config(filename)
-        local root = (_G._project_root and vim.fs.relpath(_G._project_root, filename) and _G._project_root)
-          or vim.fs.root(filename, ".git") or vim.fs.dirname(filename)
+        local root = project_root_of(filename) or vim.fs.dirname(filename)
         for dir in vim.fs.parents(filename) do
           for _, name in ipairs(OXFMT_CONFIGS) do
             if vim.uv.fs_stat(dir .. "/" .. name) then return "oxfmt", dir .. "/" .. name, root end
@@ -1874,6 +1882,56 @@ require("lazy").setup({
         return out
       end
 
+      -- Python formats with Ruff, whose default style is Black's (88 columns, double quotes,
+      -- magic trailing commas), unless the project formats with Black. Like Ruff and Black, look
+      -- upward from the file to the project root (or the filesystem root outside a project); the
+      -- nearest folder that configures either formatter decides:
+      --   `[tool.ruff.format]` in pyproject.toml, or `[format]` in ruff.toml   -> Ruff
+      --   `[tool.black]` in pyproject.toml                                      -> Black
+      --   any other Ruff config (`[tool.ruff…]`, ruff.toml, .ruff.toml)         -> Ruff
+      -- The search only goes up, so pyproject.toml files elsewhere in the tree are never read, and
+      -- each config's table headers are cached until the file changes.
+      local toml_cache = {}
+
+      --- Table headers in a TOML file (e.g. `tool.black`), or nil when the file is missing.
+      ---@param path string
+      ---@return table<string, true>?
+      local function toml_headers(path)
+        local stat = vim.uv.fs_stat(path)
+        if not stat then return nil end
+        local key = stat.mtime.sec .. "." .. stat.mtime.nsec .. ":" .. stat.size
+        local cached = toml_cache[path]
+        if cached and cached.key == key then return cached.headers end
+        local headers = {}
+        local ok, lines = pcall(vim.fn.readfile, path)
+        for _, line in ipairs(ok and lines or {}) do
+          local header = line:match("^%s*%[%s*([%w_.-]+)%s*%]")
+          if header then headers[header] = true end
+        end
+        toml_cache[path] = { key = key, headers = headers }
+        return headers
+      end
+
+      --- Conform formatter name for a Python file: "black" or "ruff_format".
+      ---@param filename string Absolute path of the file being formatted
+      ---@return string
+      local function python_formatter(filename)
+        if filename == "" or filename:match("^%a[%w+.-]*://") then return "ruff_format" end
+        local root = project_root_of(filename)
+        for dir in vim.fs.parents(filename) do
+          local pyproject = toml_headers(dir .. "/pyproject.toml") or {}
+          local ruff_toml = toml_headers(dir .. "/.ruff.toml") or toml_headers(dir .. "/ruff.toml")
+          if pyproject["tool.ruff.format"] or (ruff_toml and ruff_toml.format) then return "ruff_format" end
+          if pyproject["tool.black"] then return "black" end
+          if ruff_toml then return "ruff_format" end
+          for header in pairs(pyproject) do
+            if header == "tool.ruff" or vim.startswith(header, "tool.ruff.") then return "ruff_format" end
+          end
+          if dir == root then break end
+        end
+        return "ruff_format"
+      end
+
       conform.setup({
         formatters_by_ft = {
           javascript = { "oxfmt" },
@@ -1885,7 +1943,7 @@ require("lazy").setup({
           json = { "oxfmt" },
           yaml = { "oxfmt" },
           markdown = { "oxfmt" },
-          python = { "black" },
+          python = function(bufnr) return { python_formatter(vim.api.nvim_buf_get_name(bufnr)) } end,
           c = { "clang-format" },
           cpp = { "clang-format" },
           rust = { "rustfmt" },

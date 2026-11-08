@@ -8,6 +8,7 @@ Performance changes for this setup on the Fedora 45 laptop (Core Ultra 9 185H wi
 | --- | --- | --- | --- |
 | TypeScript 7's native language server, started as `tsgo` | vtsls on TypeScript 6's tsserver (Node) | `init.lua`; `_upall_tsgo_link` links the native binary into `~/.local/bin/tsgo` | `pnpm update -g`, then `_upall_tsgo_link` |
 | ty (Rust) | basedpyright (Node) | `init.lua` | `uv tool upgrade --all` |
+| `ruff format` (Rust), and black only in projects whose pyproject.toml has `[tool.black]` | black for every Python file (about 0.2 s to start, 0.8 s on a 3,100-line file, against 14 ms for ruff) | `init.lua` (`python_formatter`) | `uv tool upgrade --all` |
 | antidote static plugin file and fast-syntax-highlighting | Oh My Zsh's loader and zsh-syntax-highlighting | `zshrc`, `zsh_plugins.txt` | `antidote update` |
 | `compinit -C` unless an `fpath` directory changed | A full `fpath` scan on every start | `zshrc` | Nothing to update |
 | Go tools built with `GOAMD64=v3` (AVX2, BMI2, FMA) | Baseline x86-64 builds of gopls, lazygit, dlv and gup | `upall` | `GOAMD64=v3 gup update` |
@@ -58,7 +59,6 @@ Ordered by value for the effort.
 
 | Change | Replaces | How | Watch for |
 | --- | --- | --- | --- |
-| `ruff format` | black (and the mypyc build in `_upall_black`) | `python = { "ruff_format" }` in conform's `formatters_by_ft`, then `uv tool uninstall black` and drop `_upall_black` | ruff's formatter has a few [known differences from Black](https://docs.astral.sh/ruff/formatter/black/), and it reads `line-length` from `[tool.ruff]`, not `[tool.black]` |
 | `ZSH_AUTOSUGGEST_MANUAL_REBIND=1` and `ZSH_AUTOSUGGEST_BUFFER_MAX_SIZE=20` | zsh-autosuggestions rewrapping every widget before each prompt | Set both next to `ZSH_AUTOSUGGEST_USE_ASYNC`, and call `_zsh_autosuggest_bind_widgets` at the end of `zshrc`, after fzf's widgets exist | Widgets defined after that call are not wrapped |
 | Neovim plugins and parsers in `upall` | Updating them by hand in `:Lazy` | `nvim --headless '+Lazy! sync' +qa`, then `nvim --headless -c 'lua require("nvim-treesitter").update():wait(300000)' -c qa` | Rewrites `lazy-lock.json` |
 | dust | `du -h --max-depth=1 \| sort -h` (`duh`) | `cargo install --locked du-dust`, then `alias duh='dust -d 1'` | Output format differs from `du` |

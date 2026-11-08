@@ -61,7 +61,7 @@ Servers are enabled in section 3 and must be installed and on `PATH`. The config
 | --- | --- | --- |
 | TypeScript / JavaScript | `tsgo` (TypeScript 7's native server), `oxlint` | `oxfmt` |
 | CSS, HTML, JSON, YAML, Markdown | | `oxfmt` |
-| Python | `ty` | `black` |
+| Python | `ty` | `ruff format`, or `black` when the project's pyproject.toml has `[tool.black]` |
 | C / C++ | `clangd` | `clang-format` |
 | Rust | `rust-analyzer` | `rustfmt` |
 | Go | `gopls` | `gofmt` |
@@ -72,6 +72,8 @@ Servers are enabled in section 3 and must be installed and on `PATH`. The config
 Format-on-save is on (via conform.nvim) and falls back to the LSP formatter. Formatter errors show up as diagnostics and quickfix entries. Use `:ConformErrors` or `<leader>ce` to review them.
 
 oxfmt follows the nearest formatting config between the file and its project root. That can be an oxfmt config (`.oxfmtrc.json`, `.oxfmtrc.jsonc`, `oxfmt.config.ts` and the other `oxfmt.config.*` variants) or a Prettier config (`.prettierrc*`, `prettier.config.*`, or a `"prettier"` key in `package.json`). Prettier configs are converted with oxfmt's own `--migrate=prettier` into a cache directory, so nothing is written to the project. Projects with neither use the global style in `formatters/oxfmt.json` (oxfmt's defaults: 2-space indent, double quotes, 100 columns). A project's `.editorconfig` still sets indentation, line width and line endings on top of the global style.
+
+Python formats with `ruff format`, whose default style is Black's (88 columns, double quotes, magic trailing commas). Projects that format with Black get `black` instead: going up from the file to the project root, the nearest folder that configures either formatter decides. `[tool.black]` in pyproject.toml picks black. `[tool.ruff.format]` in pyproject.toml, `[format]` in `ruff.toml`, or any other Ruff config picks Ruff, and an explicit Ruff format section wins over a leftover `[tool.black]` in the same file. Only the file's parent folders are checked, never other folders in the tree, and each config is reread only when it changes, so the check costs well under a millisecond. `:ConformInfo` shows which one a buffer uses.
 
 ### Plugins
 
@@ -423,7 +425,7 @@ uv tool install --python /usr/bin/python3 black
 uv tool install ty             # Python language server
 uv tool install jupytext
 uv tool install jupyter-core   # provides the `jupyter` command used for notebook upgrades
-uv tool install ruff           # optional
+uv tool install ruff           # default Python formatter (black covers [tool.black] projects)
 ```
 
 Update everything with `upall` (it runs `uv tool upgrade --all`). If `jupytext` is missing, the config falls back to `uvx jupytext` automatically.
