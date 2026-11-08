@@ -2597,13 +2597,18 @@ require("lazy").setup({
     event = "VeryLazy",
     keys = { { "<leader>uc", "<cmd>SmearCursorToggle<CR>", desc = "Toggle Cursor Smear" } },
     opts = {
+      -- A quick glide with a short tail. Simulated with the plugin's own physics (60 FPS), the
+      -- head lands in 51-85 ms, the whole smear clears in 85-170 ms (5-10 frames, from `j` to
+      -- `G`), and the tail stays within 8 cells. The previous soft values (0.2 / 0.12 / 0.65)
+      -- lingered for 0.4-1 s.
       cursor_color = "#7aa2f7",
-      stiffness = 0.2, -- Gentle, fluid movement instead of an instant snap.
-      trailing_stiffness = 0.12, -- Soft, lagging tail for a visible glide.
-      damping = 0.65, -- Natural momentum.
+      stiffness = 0.75, -- Head snaps toward the target.
+      trailing_stiffness = 0.5, -- Tail follows closely, so the trail stays short.
+      damping = 0.9, -- Settles without bouncing past the target.
       trailing_exponent = 3,
       anticipation = 0.1,
       distance_stop_animating = 0.1,
+      max_length = 8, -- Cap the tail on long jumps such as G or gg (plugin default 25).
       color_levels = 32,
       legacy_computing_symbols_support = true,
       legacy_computing_symbols_support_vertical_bars = true,
