@@ -1999,6 +1999,11 @@ require("lazy").setup({
         local names = {}
         local ok, formatters = pcall(conform.resolve_formatters, opts.formatters or conform.list_formatters_for_buffer(bufnr), bufnr, false, opts.stop_after_first)
         for _, formatter in ipairs(ok and formatters or {}) do table.insert(names, formatter.name) end
+        -- Black takes about 0.2 s to start and 0.8 s on a 3,000-line file, close to the usual 1 s
+        -- limit, so any run that includes it (on save, `:Format`, `gq`) gets 3 s.
+        if vim.tbl_contains(names, "black") then
+          opts = vim.tbl_extend("force", opts, { timeout_ms = math.max(opts.timeout_ms or 0, 3000) })
+        end
         if #names == 0 and (opts.lsp_format or "never") ~= "never" then
           for _, client in ipairs(vim.lsp.get_clients({ bufnr = bufnr, method = "textDocument/formatting" })) do
             table.insert(names, client.name)
