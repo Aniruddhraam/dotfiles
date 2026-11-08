@@ -47,6 +47,7 @@ Close it with `?`, `q` or `<leader>w`. The leader key is `Space`: press it and w
 | `<C-c>` | Copy the line, or the selection |
 | `<C-x>` | Cut the line, or the selection |
 | `<C-v>` | Paste (Insert mode and the command line) |
+| `<M-c>` | Toggle a comment on the selection, or on the line (uses the language's comment syntax) |
 | `gc` / `gcc` | Toggle a comment on a motion or selection / on the line |
 | `gJ` | Join lines (`J` selects instead) |
 | `s` / `S` | Flash jump / Flash treesitter selection |

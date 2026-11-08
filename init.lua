@@ -5315,6 +5315,25 @@ local function visual_paste()
   end
 end
 
+--- Alt+C: toggle comments on the selected lines, like Ctrl+/ in VS Code. It runs the built-in `gc`
+--- operator, which takes the comment syntax from the 'commentstring' of the language under the
+--- cursor. The lookup is treesitter-aware: a <script> block in HTML gets `//`, a Lua code fence in
+--- Markdown gets `--`. A selection started from Insert mode returns there, with the cursor kept on
+--- the same character although the comment marker shifted the line.
+local function visual_toggle_comment()
+  local from_insert = _G._selection_from_insert
+  _G._selection_from_insert = false
+  ensure_visual_mode()
+  local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+  local before = #vim.api.nvim_buf_get_lines(0, row - 1, row, true)[1]
+  vim.api.nvim_feedkeys("gc", "mx", false) -- "m": run the built-in gc mapping
+  if from_insert then
+    local after = #(vim.api.nvim_buf_get_lines(0, row - 1, row, false)[1] or "")
+    pcall(vim.api.nvim_win_set_cursor, 0, { row, math.max(0, col + after - before) })
+    vim.cmd("startinsert")
+  end
+end
+
 local function start_selection_from_insert(motion)
   _G._selection_from_insert = true
   vim.cmd("stopinsert")
@@ -5328,7 +5347,10 @@ for _, mode in ipairs(modes) do
   vim.keymap.set(mode, '<Del>', visual_delete_blackhole, { noremap = true, silent = true, desc = "Delete selection" })
   vim.keymap.set(mode, 'p', visual_paste, { noremap = true, silent = true, desc = "Paste over selection" })
   vim.keymap.set(mode, 'P', visual_paste, { noremap = true, silent = true, desc = "Paste over selection" })
+  vim.keymap.set(mode, '<M-c>', visual_toggle_comment, { noremap = true, silent = true, desc = "Toggle comment on selection" })
 end
+-- Alt+C without a selection toggles the current line (a count covers that many lines: 3<M-c>).
+vim.keymap.set('n', '<M-c>', 'gcc', { remap = true, silent = true, desc = "Toggle comment on line" })
 
 -- Selection keys (Shift+H/J/K/L, Shift+W/B, Shift+Arrows)
 -- Shift+H: select word backward.
