@@ -16,7 +16,7 @@ Performance changes for this setup on the Fedora 45 laptop (Core Ultra 9 185H wi
 | `make` and `cmake --build` on every thread, Ninja for CMake | Serial `make`, Makefile generator | `zshrc` | `dnf upgrade` |
 | ccache for C, C++ and CUDA, sccache for Rust | Uncached compiles | `zshrc` (CMake launchers), `~/.cargo/config.toml` | `dnf upgrade` |
 | mold through `COMPILER_PATH` and `-fuse-ld=mold` in Cargo | GNU ld and rust-lld | `zshrc`, `~/.cargo/config.toml` | `dnf upgrade` |
-| git `core.fsmonitor`, `core.untrackedCache`, `feature.manyFiles`, `fetch.writeCommitGraph` | Full worktree scans | `~/.gitconfig` (outside this repo) | `dnf upgrade` (git) |
+| git `core.fsmonitor`, `core.untrackedCache`, `feature.manyFiles`, `fetch.writeCommitGraph` | Full worktree scans | `~/.gitconfig` and `~/.config/git/no-fsmonitor.gitconfig` (outside this repo) | `dnf upgrade` (git) |
 | btrfs `noatime` on `/` and `/home` | `relatime` | `/etc/fstab` | Nothing to update |
 | dm-crypt without read and write workqueues, discards kept | Default dm-crypt queues | LUKS2 header (persistent flags) | Nothing to update |
 
@@ -26,7 +26,7 @@ Notes:
 
 - TypeScript 7.0's server has no refactor code actions yet (extract, move to file, convert export, infer return type).
 - The system `ld` stays GNU ld through `alternatives`. `akmod-nvidia` builds the NVIDIA kernel module with plain `ld`, and mold isn't built for kernel and module linking, so mold is only the default for links that `gcc`, `clang`, `nvcc` and Cargo run.
-- `core.fsmonitor` starts a small inotify daemon per repository the first time `git status` runs there. Turn it off for one repository with `git config core.fsmonitor false`.
+- `core.fsmonitor` starts a small inotify daemon per repository the first time `git status` runs there, and the daemon keeps running. lazy.nvim and antidote run git in every plugin checkout when they check for updates, which on 2026-11-11 had left 46 daemons running (about 500 threads and 250 MB), 45 of them in plugin checkouts. `includeIf` rules in `~/.gitconfig` now load `~/.config/git/no-fsmonitor.gitconfig` (`core.fsmonitor = false`) for `~/.local/share/nvim/lazy/`, `~/.cache/antidote/` and `~/.antidote/`, so only repositories you work in get a daemon. Turn it off for one more repository with `git config core.fsmonitor false`, and stop its running daemon with `git fsmonitor--daemon stop`.
 
 ### System changes (outside this repo)
 
@@ -49,6 +49,13 @@ git config --global core.fsmonitor true
 git config --global core.untrackedCache true
 git config --global feature.manyFiles true
 git config --global fetch.writeCommitGraph true
+
+# git: no fsmonitor daemons in plugin checkouts
+mkdir -p ~/.config/git
+printf '[core]\n\tfsmonitor = false\n' > ~/.config/git/no-fsmonitor.gitconfig
+git config --global 'includeIf.gitdir:~/.local/share/nvim/lazy/.path' '~/.config/git/no-fsmonitor.gitconfig'
+git config --global 'includeIf.gitdir:~/.cache/antidote/.path' '~/.config/git/no-fsmonitor.gitconfig'
+git config --global 'includeIf.gitdir:~/.antidote/.path' '~/.config/git/no-fsmonitor.gitconfig'
 ```
 
 To undo the dm-crypt flags, run `sudo cryptsetup refresh --allow-discards --persistent <mapping>`. Undo `noatime` by restoring the `/etc/fstab.bak-*` copy.
