@@ -1335,7 +1335,9 @@ _upall_duckdb() {
 # pnpm still skips versions published less than a day ago (its supply-chain release-age check).
 # gup rebuilds the Go tools for x86-64-v3 (AVX2, BMI2, FMA), which this CPU supports; that includes
 # Bazelisk (`go install github.com/bazelbuild/bazelisk@latest`, linked as ~/.local/bin/bazel).
-# `uv tool upgrade --all` also updates ty, the Python language server Neovim uses, and
+# `uv python upgrade` moves uv's own Pythons (3.14, which ty runs on) to their latest patch release;
+# `uv tool upgrade --all` doesn't. `uv tool upgrade --all` also updates ty, the Python language
+# server Neovim uses, and
 # `antidote update` pulls antidote itself and every zsh plugin in ~/.zsh_plugins.txt.
 upall() {
   local step
@@ -1350,9 +1352,12 @@ upall() {
     'rustup update' \
     'cargo install-update -a' \
     '_upall_texlab' \
+    'uv python upgrade' \
     'uv tool upgrade --all' \
     '_upall_black' \
     '_upall_duckdb' \
+    'claude update' \
+    'codex update' \
     'antidote update' \
     'flatpak update -y'
   do
