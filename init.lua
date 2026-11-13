@@ -4524,8 +4524,10 @@ vim.keymap.set({ 'i', 'c' }, '<M-b>', '<BS>', { noremap = true, silent = true, d
 vim.keymap.set({ 'i', 'c' }, '<M-BS>', '<BS>', { noremap = true, silent = true, desc = "Backspace" })
 
 -- Ctrl+Backspace deletes the previous word (Insert mode and the command line). <C-g>u makes it its
--- own undo step. Needs a terminal that speaks the kitty keyboard protocol (Ghostty, kitty, WezTerm).
--- Elsewhere it arrives as <C-h>, which is Home in Insert mode (below).
+-- own undo step. Needs a terminal that speaks the kitty keyboard protocol (kitty, WezTerm).
+-- Ghostty sends ^W for it instead (~/.config/ghostty/config), which nvim's own Insert-mode <C-w>
+-- (<C-g>u<C-w>) and the command line treat the same way. Other terminals send <C-h>, which is
+-- Home in Insert mode (below).
 vim.keymap.set('i', '<C-BS>', '<C-g>u<C-w>', { noremap = true, silent = true, desc = "Delete Previous Word (Insert)" })
 vim.keymap.set('c', '<C-BS>', '<C-w>', { noremap = true, silent = true, desc = "Delete Previous Word (Cmdline)" })
 

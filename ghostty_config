@@ -31,6 +31,12 @@ scrollback-limit-lines = 100000
 # Keybinds
 # Free ctrl+enter (Ghostty default: toggle_fullscreen) so Claude Code can use it
 keybind = ctrl+enter=unbind
+# ctrl+backspace deletes the previous word, as in GUI text fields. Ghostty 1.3's legacy key table has
+# no ctrl+backspace entry, so programs got no delete-word key from it; send ^W instead, the
+# delete-word key of zsh, readline, fzf, Claude Code and nvim (Insert and the command line; its
+# Insert-mode default <C-g>u<C-w> keeps it a separate undo step). In nvim's Normal mode it is
+# the <C-w> window prefix.
+keybind = ctrl+backspace=text:\x17
 # ctrl+alt+shift+j (default: write_screen_file:open): write the screen to /tmp/<id>/screen.txt and
 # type ctrl+alt+shift+j (CSI u), the file's path, then ctrl+alt+shift+k, so the program opens the
 # right dump. zsh opens this file at the prompt (~/.zshrc). nvim opens a terminal buffer's own
