@@ -1,6 +1,6 @@
 # Performance upgrades
 
-Performance changes for this setup on the Fedora 45 laptop (Core Ultra 9 185H with 22 threads, 30 GiB RAM, RTX 4070 Laptop and Arc iGPU, btrfs on LUKS2), as of 2026-11-07. The aim is to swap runtime-based or single-threaded tools for native, parallel ones without changing how anything is used, and to keep each one current through `upall`.
+Performance changes for this setup on the Fedora 45 laptop (Core Ultra 9 185H with 22 threads, 30 GiB RAM, RTX 4070 Laptop and Arc iGPU, btrfs on LUKS2), as of 2026-11-13. The aim is to swap runtime-based or single-threaded tools for native, parallel ones without changing how anything is used, and to keep each one current through `upall`.
 
 ## Applied
 
@@ -59,6 +59,61 @@ git config --global 'includeIf.gitdir:~/.antidote/.path' '~/.config/git/no-fsmon
 ```
 
 To undo the dm-crypt flags, run `sudo cryptsetup refresh --allow-discards --persistent <mapping>`. Undo `noatime` by restoring the `/etc/fstab.bak-*` copy.
+
+## Network
+
+These changes were applied between 2026-11-04 and 2026-11-11, all outside this repo (root files and NetworkManager profiles). The numbers come from short tests in those sessions, so treat them as rough.
+
+| Change | Replaces | Where | Measured effect |
+| --- | --- | --- | --- |
+| TCP congestion control BBR | CUBIC, the kernel default | `/etc/sysctl.d/90-congested-wifi.conf`, `/etc/modules-load.d/tcp-bbr.conf` | Campus Wi-Fi uploads (4 × 4 MB each way): about the same median (CUBIC 12.6, BBR 12.1 Mbit/s) but steadier (BBR 11.2–12.7, CUBIC 8.6–15.4 Mbit/s) |
+| `tcp_slow_start_after_idle = 0` | The congestion window shrinking after every idle gap | `/etc/sysctl.d/90-congested-wifi.conf` | Not measured on its own; helps bursty traffic such as web browsing |
+| `tcp_wmem` max 32 MB, matching `tcp_rmem` | The 4 MB kernel default | `/etc/sysctl.d/91-tcp-buffers.conf` | None beyond noise, and the send buffer never limited a connection. It's headroom for single uploads to distant, fast servers |
+| Wi-Fi power save off on AC, on every network | The driver default (on) | `/usr/local/sbin/wifi-powersave-ac`, `wifi-powersave-ac.service`, `/etc/udev/rules.d/90-wifi-powersave-ac.rules`, `/etc/NetworkManager/dispatcher.d/90-wifi-powersave-ac` | On campus (2026-11-04, then a per-profile setting): ping to 8.8.8.8 went from ~190 to ~82 ms on average, and spikes from ~1.1 to ~0.5 s. On battery each profile keeps its own setting |
+| Campus profile: `powersave 2`, `band a`, `metered yes` | Power save on, 2.4 GHz allowed, unmetered | NetworkManager profile `AMRITA-BLR-Connect`, my university's enterprise Wi-Fi (WPA-Enterprise, 802.1X with PEAP and MSCHAPv2) | Stays on 5 GHz and keeps power save off on battery too. Metered tells apps to hold back automatic downloads |
+| IPv6 off on the ACT profiles | ACT's IPv6, which has a default route but no address, so every dual-stack connection waited for IPv6 to time out | NetworkManager profiles `Wired connection 1`, `ACTFIBERNET_5G` | New connection to google.com: 218 → 18 ms |
+| dnscrypt-proxy on direct Cloudflare DoH, `cache_min_ttl = 1800` | ODoH through a randomly picked relay (often one in Germany), `cache_min_ttl = 2400` | `/etc/dnscrypt-proxy/dnscrypt-proxy.toml` (backup `dnscrypt-proxy.toml.bak-odoh-2026-11-06`) | Uncached lookups went from ~165 ms to 7–39 ms. CDN sites now answer from servers 2–47 ms away instead of 109–177 ms, and the github.com homepage loads in 144 ms instead of 798 ms. The trade-off is that Cloudflare sees your IP address |
+
+**BBR and CUBIC.** Both are TCP congestion-control algorithms, which decide how fast this laptop sends data. CUBIC, the Linux default, keeps speeding up until a packet is lost, then cuts its rate by about 30%. On Wi-Fi, packets are also lost to radio interference, not only to congestion, so CUBIC slows down when it doesn't need to. BBR measures the path's bandwidth and round-trip time and paces packets at that rate, so a random loss doesn't make it back off. It only changes what this laptop sends (uploads and requests). Downloads follow the server's algorithm. The qdisc stays `fq_codel`: BBR paces on its own, and the Wi-Fi stack (mac80211) has its own fq_codel.
+
+**Home wired connection.** At home on ACT, the laptop uses a Realtek RTL8156B USB 2.5 GbE adapter (`enp0s13f0u4`). It links at 1 Gbit/s because the router port is gigabit, and measured ~650 Mbit/s each way with 6 ms average ping under load. NetworkManager prefers it (route metric 100) over Wi-Fi (600), which stays connected as a fallback.
+
+Left as is:
+
+- **Ethernet adapter tuning** (ring buffers, offloads, interrupt coalescing, jumbo frames): 0 errors and no bufferbloat, so there's nothing to gain.
+- **Bufferbloat and QoS on home Wi-Fi** (Excitel: ping under load 16 ms average, 67 ms max): only the router can fix these, for example with SQM/cake on your own router.
+
+Check the current state:
+
+```sh
+sysctl net.ipv4.tcp_congestion_control net.ipv4.tcp_slow_start_after_idle net.ipv4.tcp_wmem
+iw dev wlo1 get power_save
+nmcli -g ipv6.method con show "Wired connection 1"
+rg '^(server_names|doh_servers|odoh_servers|cache_min_ttl)' /etc/dnscrypt-proxy/dnscrypt-proxy.toml
+```
+
+Redo on another machine:
+
+```sh
+# BBR, no slow start after idle, 32 MB max send buffer
+printf 'net.ipv4.tcp_congestion_control = bbr\nnet.ipv4.tcp_slow_start_after_idle = 0\n' | sudo tee /etc/sysctl.d/90-congested-wifi.conf
+echo 'net.ipv4.tcp_wmem = 4096 16384 33554432' | sudo tee /etc/sysctl.d/91-tcp-buffers.conf
+echo tcp_bbr | sudo tee /etc/modules-load.d/tcp-bbr.conf
+sudo modprobe tcp_bbr && sudo sysctl --system
+
+# Campus profile, and IPv6 off where the network's IPv6 is broken.
+# AMRITA-BLR-Connect is my university's enterprise Wi-Fi (802.1X, PEAP/MSCHAPv2);
+# these settings only tune it, the login stays in the existing profile.
+nmcli con mod AMRITA-BLR-Connect 802-11-wireless.powersave 2 802-11-wireless.band a connection.metered yes
+nmcli con mod "Wired connection 1" ipv6.method disabled
+nmcli con mod ACTFIBERNET_5G ipv6.method disabled
+
+# DNS: in /etc/dnscrypt-proxy/dnscrypt-proxy.toml set server_names = ['cloudflare'],
+# doh_servers = true, odoh_servers = false, cache_min_ttl = 1800, comment out the ODoH
+# route under [anonymized_dns], then: sudo systemctl restart dnscrypt-proxy
+```
+
+To undo them: delete the two `sysctl.d` files and `tcp-bbr.conf` and reboot. Set `ipv6.method auto` on the two ACT profiles. Copy the dnscrypt backup back and restart dnscrypt-proxy. Delete the four power-save files listed above.
 
 ## Suggested next
 
