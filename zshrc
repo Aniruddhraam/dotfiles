@@ -1329,6 +1329,18 @@ _upall_duckdb() {
   curl -fsSL https://install.duckdb.org | sh
 }
 
+# `cs` is a GraalVM native image built with a Scala 3 library whose LazyVals still calls
+# sun.misc.Unsafe, so on JDK 24+ it prints a four-line "terminally deprecated" warning (JEP 498)
+# from inside the binary; nothing is missing, and no flag reaches a native image. The JVM launcher
+# next to it (`coursier`, same version, also an app `cs update` manages) reads JAVA_OPTS, so the
+# update runs through it with the warning switched off. Falls back to plain `cs update` without it.
+_upall_cs() {
+  (( $+commands[cs] )) || return 0
+  local launcher=${commands[cs]:h}/coursier
+  [[ -x $launcher ]] || launcher=${commands[cs]}
+  JAVA_OPTS="--sun-misc-unsafe-memory-access=allow $JAVA_OPTS" $launcher update
+}
+
 # Update everything in one go; a failing step doesn't stop the rest, failures are listed at the end.
 # pnpm records each global package with a caret range, and `pnpm update` stays inside it (for a
 # 0.x version, `^0.67.0` never leaves 0.67.x), so `--latest` is what moves them to new releases.
@@ -1337,7 +1349,7 @@ _upall_duckdb() {
 # Bazelisk (`go install github.com/bazelbuild/bazelisk@latest`, linked as ~/.local/bin/bazel).
 # `uv python upgrade` moves uv's own Pythons (3.14, which ty runs on) to their latest patch release;
 # `uv tool upgrade --all` doesn't. `uv tool upgrade --all` also updates ty, the Python language
-# server Neovim uses, and
+# server Neovim uses. `_upall_cs` updates the Coursier apps (scala, scala-cli, sbt, scalafmt, amm).
 # `antidote update` pulls antidote itself and every zsh plugin in ~/.zsh_plugins.txt.
 upall() {
   local step
@@ -1356,6 +1368,7 @@ upall() {
     'uv tool upgrade --all' \
     '_upall_black' \
     '_upall_duckdb' \
+    '_upall_cs' \
     'claude update' \
     'codex update' \
     'antidote update' \
