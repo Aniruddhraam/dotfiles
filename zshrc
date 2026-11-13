@@ -1341,6 +1341,18 @@ _upall_cs() {
   JAVA_OPTS="--sun-misc-unsafe-memory-access=allow $JAVA_OPTS" $launcher update
 }
 
+# Neovim plugins (lazy.nvim, which rewrites ~/.config/nvim/lazy-lock.json) and the Tree-sitter
+# parsers. nvim-treesitter's `build = ":TSUpdate"` starts the parser update asynchronously, so
+# headless Neovim would quit before it finishes; update() returns a task that is waited on instead.
+# A parser update that fails exits with an error, so upall lists the step as failed.
+_upall_nvim() {
+  (( $+commands[nvim] )) || return 0
+  nvim --headless '+Lazy! sync' \
+    '+lua local ok, err = pcall(function() require("nvim-treesitter").update():wait(600000) end)
+      if not ok then io.stderr:write(tostring(err), "\n") vim.cmd("cquit 1") end' \
+    '+qa'
+}
+
 # Update everything in one go; a failing step doesn't stop the rest, failures are listed at the end.
 # pnpm records each global package with a caret range, and `pnpm update` stays inside it (for a
 # 0.x version, `^0.67.0` never leaves 0.67.x), so `--latest` is what moves them to new releases.
@@ -1372,6 +1384,7 @@ upall() {
     'claude update' \
     'codex update' \
     'antidote update' \
+    '_upall_nvim' \
     'flatpak update -y'
   do
     print -P "%F{blue}==> $step%f"
