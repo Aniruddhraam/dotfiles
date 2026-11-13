@@ -1158,17 +1158,30 @@ esac
 # pnpm end
 
 # ==============================================================================
-# DNS mode switching: dnscrypt-proxy (ODoH) <-> the network's own plain DNS
+# DNS mode switching: dnscrypt-proxy (encrypted DNS) <-> the network's own plain DNS
 # ------------------------------------------------------------------------------
-# Normal state: /etc/resolv.conf -> 127.0.0.1 (dnscrypt-proxy, ODoH, cached).
-# Captive networks (e.g. university Wi-Fi login) block ODoH/relay traffic until you
+# Normal state: /etc/resolv.conf -> 127.0.0.1 (dnscrypt-proxy, cached). Its upstream is set in
+# /etc/dnscrypt-proxy/dnscrypt-proxy.toml: direct Cloudflare DoH since 2026-11-06 (was ODoH).
+# Captive networks (e.g. university Wi-Fi login) block encrypted DNS traffic until you
 # authenticate, so nothing resolves and the login portal can't load. Workflow:
 #   dnsplain   -> point resolv.conf at the DHCP-provided DNS, then open http://neverssl.com
-#   dnsodoh    -> after logging in, go back to encrypted ODoH DNS
+#   dnssecure  -> after logging in, go back to encrypted DNS (old name dnsodoh still works)
 #   dnsstatus  -> show which mode is active and test a lookup
 # dnscrypt-proxy keeps running in both modes; only /etc/resolv.conf changes.
-# Full undo of the migration is a different command: sudo odoh-migrate rollback
+# Full undo of the original dnscrypt-proxy migration: sudo odoh-migrate rollback
 # ==============================================================================
+
+# Describe dnscrypt-proxy's upstream from its config, e.g. "DoH (cloudflare)".
+_dns_upstream() {
+  local conf=/etc/dnscrypt-proxy/dnscrypt-proxy.toml names
+  local -a protos
+  [[ -r $conf ]] || { print -r -- "encrypted"; return }
+  command grep -qE '^\s*dnscrypt_servers\s*=\s*true' $conf && protos+=(DNSCrypt)
+  command grep -qE '^\s*doh_servers\s*=\s*true' $conf && protos+=(DoH)
+  command grep -qE '^\s*odoh_servers\s*=\s*true' $conf && protos+=(ODoH)
+  names=$(awk -F"'" '/^[[:space:]]*server_names/{for(i=2;i<=NF;i+=2) printf "%s%s", (i>2?", ":""), $i; exit}' $conf)
+  print -r -- "${(j:/:)protos:-encrypted}${names:+ ($names)}"
+}
 
 # Print the interface carrying the default route (falls back to the first connected NIC).
 _dns_iface() {
@@ -1190,35 +1203,36 @@ dnsplain() {
   # tee (not >) so the redirect itself runs as root; keeps the file's SELinux context
   printf 'nameserver %s\n' "$dns" | sudo tee /etc/resolv.conf >/dev/null || return 1
   echo "==> PLAIN DNS via $dns on $dev (unencrypted; the network can see lookups)."
-  echo "    Log in at http://neverssl.com, then run: dnsodoh"
+  echo "    Log in at http://neverssl.com, then run: secure-mode"
 }
 
-# Switch back to the local dnscrypt-proxy (ODoH) resolver and check that it works.
-dnsodoh() {
+# Switch back to the local dnscrypt-proxy resolver (encrypted upstream) and check that it works.
+dnssecure() {
   systemctl is-active --quiet dnscrypt-proxy || sudo systemctl start dnscrypt-proxy || return 1
   printf 'nameserver 127.0.0.1\noptions edns0\n' | sudo tee /etc/resolv.conf >/dev/null || return 1
   # dig prints errors to stdout, so only a real IPv4 address counts as success
   if dig +short +time=6 +tries=1 example.com @127.0.0.1 2>/dev/null | command grep -qE '^[0-9]+(\.[0-9]+){3}$'; then
-    echo "==> ODoH DNS active (dnscrypt-proxy on 127.0.0.1) and resolving."
+    echo "==> Encrypted DNS active: dnscrypt-proxy on 127.0.0.1 -> $(_dns_upstream), resolving."
   else
     echo "==> resolv.conf now points at dnscrypt-proxy but it isn't resolving yet." >&2
-    echo "    Not logged in to the network? Run dnsplain, log in, then dnsodoh again." >&2
+    echo "    Not logged in to the network? Run portal-mode, log in, then secure-mode again." >&2
     return 1
   fi
 }
+dnsodoh() { dnssecure "$@"; }   # old name, kept so muscle memory still works
 
 # Show the active mode and time a lookup.
 dnsstatus() {
   local ns
   ns=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)
-  if [[ $ns == 127.0.0.1 ]]; then echo "mode: ODoH (dnscrypt-proxy, $(systemctl is-active dnscrypt-proxy))"
+  if [[ $ns == 127.0.0.1 ]]; then echo "mode: SECURE, dnscrypt-proxy ($(systemctl is-active dnscrypt-proxy)) -> $(_dns_upstream)"
   else echo "mode: PLAIN via ${ns:-none}"; fi
   dig +noall +answer +stats example.com | awk '/IN/{print "  " $0} /Query time/{print "  " $0}'
 }
 
 # Friendlier names for the two modes above
 portal-mode() { dnsplain; }   # plain DHCP DNS, for captive-portal login
-secure-mode() { dnsodoh; }    # back to ODoH via dnscrypt-proxy
+secure-mode() { dnssecure; }  # back to encrypted DNS (Cloudflare DoH) via dnscrypt-proxy
 
 # uv: `uv add <pkg>` outside any project first creates a bare pyproject.toml (no git repo,
 # README, .python-version or src/), then runs the normal add, which makes .venv.
