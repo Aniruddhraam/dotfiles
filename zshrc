@@ -1333,7 +1333,8 @@ _upall_duckdb() {
 # pnpm records each global package with a caret range, and `pnpm update` stays inside it (for a
 # 0.x version, `^0.67.0` never leaves 0.67.x), so `--latest` is what moves them to new releases.
 # pnpm still skips versions published less than a day ago (its supply-chain release-age check).
-# gup rebuilds the Go tools for x86-64-v3 (AVX2, BMI2, FMA), which this CPU supports.
+# gup rebuilds the Go tools for x86-64-v3 (AVX2, BMI2, FMA), which this CPU supports; that includes
+# Bazelisk (`go install github.com/bazelbuild/bazelisk@latest`, linked as ~/.local/bin/bazel).
 # `uv tool upgrade --all` also updates ty, the Python language server Neovim uses, and
 # `antidote update` pulls antidote itself and every zsh plugin in ~/.zsh_plugins.txt.
 upall() {
