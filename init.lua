@@ -1273,9 +1273,11 @@ require("lazy").setup({
           api.config.mappings.default_on_attach(bufnr)
           vim.keymap.set("n", "q", "<cmd>wincmd p<CR>", { buffer = bufnr, noremap = true, silent = true, desc = "Return to code" })
 
-          -- Replace the blocking delete on `d` and `D` with the background delete.
-          vim.keymap.set("n", "d", nvim_tree_async_remove, { buffer = bufnr, noremap = true, silent = true, desc = "Async Delete (Background)" })
-          vim.keymap.set("n", "D", nvim_tree_async_remove, { buffer = bufnr, noremap = true, silent = true, desc = "Async Delete (Background)" })
+          -- Replace the blocking delete on `d` and `D` with the background delete. `nowait` (which
+          -- nvim-tree's own mappings set) keeps `d` from waiting out 'timeoutlen' for the global
+          -- `dgg` mapping.
+          vim.keymap.set("n", "d", nvim_tree_async_remove, { buffer = bufnr, noremap = true, silent = true, nowait = true, desc = "Async Delete (Background)" })
+          vim.keymap.set("n", "D", nvim_tree_async_remove, { buffer = bufnr, noremap = true, silent = true, nowait = true, desc = "Async Delete (Background)" })
         end,
         view = {
           width = 35,
