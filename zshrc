@@ -1450,3 +1450,6 @@ _cache_eval zoxide zoxide init zsh --cmd cd
 
 # Added by Antigravity CLI installer
 export PATH="$HOME/.local/bin:$PATH"
+
+# Raven Python binding (added by /home/aniruddh/projects/Raven/update-python.sh)
+export PYTHONPATH="$HOME/.local/lib/raven-py${PYTHONPATH:+:$PYTHONPATH}"
