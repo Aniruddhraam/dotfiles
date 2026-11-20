@@ -1346,6 +1346,12 @@ require("lazy").setup({
           },
         },
         filters = { dotfiles = false, git_ignored = false },
+        -- `git status` takes 2-63 ms in these projects, but nvim-tree times its git jobs on
+        -- Neovim's event loop. Opening several files at once can block the loop for 0.5-1.3 s,
+        -- and a job that finished long before still counts as timed out. After 5 timeouts
+        -- (a counter that never resets) nvim-tree turns git off for the rest of the session.
+        -- 2 s covers those stalls; a git that really hangs is still killed.
+        git = { timeout = 2000 },
       })
 
       -- Re-rooting (a project switch, Close_Project's `cd ~`, a session restore) replaces the
