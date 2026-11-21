@@ -3449,6 +3449,7 @@ vim.diagnostic.config({
       end
     end,
   },
+  -- Only errors inline; warnings, info and hints stay in the CursorHold float.
   virtual_text = { severity = vim.diagnostic.severity.ERROR },
   signs = true,
   underline = true,
