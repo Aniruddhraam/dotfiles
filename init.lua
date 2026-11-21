@@ -2749,6 +2749,24 @@ require("lazy").setup({
       -- v2 and stay off, as in v1.
       providers = { gitsigns = true, search = false, marks = false },
     },
+    config = function(_, opts)
+      -- gitsigns reports a deletion above the first line (e.g. a file whose first lines were
+      -- removed, as in some SVGs) as a hunk starting at line 0. The scrollbar's gitsigns provider
+      -- turns that into line -1, which its validation rejects with a warning. Clamp it to line 1.
+      local ok, gitsigns = pcall(require, "gitsigns")
+      if ok and not gitsigns._scrollbar_clamped then
+        local get_hunks = gitsigns.get_hunks
+        gitsigns.get_hunks = function(...)
+          local hunks = get_hunks(...)
+          for _, hunk in ipairs(hunks or {}) do
+            if hunk.type == "delete" and hunk.added and hunk.added.start < 1 then hunk.added.start = 1 end
+          end
+          return hunks
+        end
+        gitsigns._scrollbar_clamped = true
+      end
+      require("scrollbar").setup(opts)
+    end,
   },
 
   -- PDF preview: renders pages as images in the buffer via the Kitty graphics protocol.
