@@ -431,6 +431,9 @@ require("lazy").setup({
 
         fzf.fzf_exec(projects, {
           prompt = "Projects> ",
+          -- Project names commonly use CamelCase; keep their picker case-insensitive even when
+          -- fzf's global options request smart- or case-sensitive matching.
+          fzf_opts = { ["--ignore-case"] = true },
           actions = {
             ["default"] = function(selected)
               if selected and selected[1] then _G.Open_Project_Directory(selected[1]) end
@@ -448,7 +451,18 @@ require("lazy").setup({
         if not status_ok then return end
         local s_ok, as_picker = pcall(require, "auto-session.pickers.fzf")
         if s_ok and as_picker.open_session_picker and as_picker.is_available() then
-          as_picker.open_session_picker()
+          -- auto-session builds its own fzf-lua picker and takes no fzf options, so add
+          -- --ignore-case to the one fzf_exec call it makes. Session names are paths, often CamelCase.
+          local fzf = require("fzf-lua")
+          local orig = fzf.fzf_exec
+          fzf.fzf_exec = function(contents, opts)
+            opts = opts or {}
+            opts.fzf_opts = vim.tbl_extend("force", opts.fzf_opts or {}, { ["--ignore-case"] = true })
+            return orig(contents, opts)
+          end
+          local ok, err = pcall(as_picker.open_session_picker)
+          fzf.fzf_exec = orig
+          if not ok then vim.notify(tostring(err), vim.log.levels.ERROR, { title = "Sessions" }) end
         else
           vim.cmd("AutoSession search")
         end
